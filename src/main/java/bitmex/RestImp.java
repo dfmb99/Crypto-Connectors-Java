@@ -2,7 +2,6 @@ package bitmex;
 
 import bitmex.Exceptions.ApiConnectionError;
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.commons.codec.binary.Hex;
@@ -15,6 +14,7 @@ import javax.ws.rs.ProcessingException;
 import javax.ws.rs.client.*;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -27,26 +27,26 @@ public class RestImp implements Rest {
 
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
     private final Gson g = new Gson();
-    private Client client;
-    private String apiKey, apiSecret;
-    private boolean shouldAuth;
+    private final Client client;
+    private final String apiKey;
+    private final String apiSecret;
+    private final boolean auth;
 
     /**
      * Implementation to connect to the Bitmex Rest API, see more at https://www.bitmex.com/api/explorer/
-     * @param apiKey - apiKey of client, "" otherwise
+     *
+     * @param apiKey    - apiKey of client, "" otherwise
      * @param apiSecret - apiSecret of client, "" otherwise
      */
     public RestImp(String apiKey, String apiSecret) {
         client = clientConfiguration();
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
-        if (!apiKey.equals("") && !apiSecret.equals(""))
-            shouldAuth = true;
-        else
-            shouldAuth = false;
+        auth = !apiKey.equals("") && !apiSecret.equals("");
     }
 
-    public JsonArray apiCall(String verb, String endpoint, JsonObject data) throws InvalidKeyException, NoSuchAlgorithmException, ApiConnectionError {
+    public String apiCall(String verb, String endpoint, JsonObject data) throws InvalidKeyException,
+            NoSuchAlgorithmException, ApiConnectionError {
         WebTarget target = client.target(Rest.url).path(Rest.apiPath + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
@@ -60,9 +60,13 @@ public class RestImp implements Rest {
                 .header("content-type", "application/json; charset=utf-8")
                 .header("connection", "keep-alive");
 
-        if (shouldAuth) {
+        if (auth) {
             String expires = String.valueOf(Instant.now().getEpochSecond() + 3600);
-            String signature = encodeHmacSignature(apiSecret, verb + target.getUri().getPath() + expires + data.toString());
+            URI uri = target.getUri();
+            String sigData = String.format("%s%s%s%s%s", verb, uri.getPath() == null ? "" : uri.getPath(),
+                    uri.getQuery() == null ? "" : "?" + uri.getQuery(), expires, verb.equalsIgnoreCase("GET") ? "" :
+                    data.toString());
+            String signature = encodeHmacSignature(apiSecret, sigData);
             httpReq = httpReq
                     .header("api-expires", expires)
                     .header("api-key", apiKey)
@@ -73,25 +77,27 @@ public class RestImp implements Rest {
         while (!success) {
             try {
                 Response r = null;
-                LOGGER.info(target.getUri().toString());
                 if (verb.equalsIgnoreCase("GET"))
                     r = httpReq.get();
-                else if(verb.equalsIgnoreCase("POST"))
-                    r = httpReq.post(Entity.entity(data, MediaType.APPLICATION_JSON));
-                else if(verb.equalsIgnoreCase("PUT"))
-                    r = httpReq.put(Entity.entity(data, MediaType.APPLICATION_JSON));
-                else if(verb.equalsIgnoreCase("DELETE"))
-                    r = httpReq.build("DELETE", Entity.entity(data, MediaType.APPLICATION_JSON)).invoke();
+                else if (verb.equalsIgnoreCase("POST"))
+                    r = httpReq.post(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
+                else if (verb.equalsIgnoreCase("PUT"))
+                    r = httpReq.put(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
+                else if (verb.equalsIgnoreCase("DELETE"))
+                    r = httpReq.build("DELETE", Entity.entity(data.toString(), MediaType.APPLICATION_JSON)).invoke();
 
-                // get http response code
+
+                if (r == null) {
+                    LOGGER.severe("No response from server.");
+                    throw new ApiConnectionError();
+                }
                 int status = r.getStatus();
-                LOGGER.info(String.valueOf(status));
                 success = true;
 
                 if (status == Response.Status.OK.getStatusCode() && r.hasEntity())
-                    return JsonParser.parseString(r.readEntity(String.class)).getAsJsonArray();
-                else
-                    apiError(status);
+                    return r.readEntity(String.class);
+                else if (r.hasEntity())
+                    apiError(status, r.readEntity(String.class));
 
             } catch (ProcessingException pe) { //Error in communication with server
                 LOGGER.info("Timeout occurred.");
@@ -103,7 +109,7 @@ public class RestImp implements Rest {
                 LOGGER.info("Retrying to execute request.");
             }
         }
-        //connection error
+        LOGGER.severe("Connection Error.");
         throw new ApiConnectionError();
     }
 
@@ -141,7 +147,9 @@ public class RestImp implements Rest {
         return Hex.encodeHexString(sha256_HMAC.doFinal(data.getBytes(StandardCharsets.UTF_8)));
     }
 
-    private void apiError(int status) {
-
+    private void apiError(int status, String response) {
+        JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
+        System.out.println(status + " " + errorObj.get("message"));
+        System.exit(1);
     }
 }
