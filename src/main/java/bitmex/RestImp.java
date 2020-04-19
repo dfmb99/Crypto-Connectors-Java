@@ -13,6 +13,7 @@ import javax.crypto.spec.SecretKeySpec;
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.client.*;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -45,8 +46,7 @@ public class RestImp implements Rest {
         auth = !apiKey.equals("") && !apiSecret.equals("");
     }
 
-    public String apiCall(String verb, String endpoint, JsonObject data) throws InvalidKeyException,
-            NoSuchAlgorithmException, ApiConnectionError {
+    public String apiCall(String verb, String endpoint, JsonObject data) throws ApiConnectionError {
         WebTarget target = client.target(Rest.url).path(Rest.apiPath + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
@@ -65,7 +65,7 @@ public class RestImp implements Rest {
             URI uri = target.getUri();
             String sigData = String.format("%s%s%s%s%s", verb, uri.getPath() == null ? "" : uri.getPath(),
                     uri.getQuery() == null ? "" : "?" + uri.getQuery(), expires, verb.equalsIgnoreCase("GET") ? "" :
-                    data.toString());
+                            data.toString());
             String signature = encodeHmacSignature(apiSecret, sigData);
             httpReq = httpReq
                     .header("api-expires", expires)
@@ -97,7 +97,7 @@ public class RestImp implements Rest {
                 if (status == Response.Status.OK.getStatusCode() && r.hasEntity())
                     return r.readEntity(String.class);
                 else if (r.hasEntity())
-                    apiError(status, r.readEntity(String.class));
+                    apiError(status, verb, endpoint, data, r.readEntity(String.class), r.getHeaders());
 
             } catch (ProcessingException pe) { //Error in communication with server
                 LOGGER.info("Timeout occurred.");
@@ -140,16 +140,61 @@ public class RestImp implements Rest {
      * @throws InvalidKeyException      - invalid Keys (invalid encoding, wrong length, uninitialized)
      * @throws NoSuchAlgorithmException - cryptographic algorithm is requested but is not available
      */
-    public static String encodeHmacSignature(String key, String data) throws NoSuchAlgorithmException, InvalidKeyException {
-        Mac sha256_HMAC = Mac.getInstance(HMAC_SHA_256.getName());
-        SecretKeySpec secret_key = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256.getName());
-        sha256_HMAC.init(secret_key);
-        return Hex.encodeHexString(sha256_HMAC.doFinal(data.getBytes(StandardCharsets.UTF_8)));
+    public static String encodeHmacSignature(String key, String data) {
+        try {
+            Mac sha256_HMAC = Mac.getInstance(HMAC_SHA_256.getName());
+            SecretKeySpec secret_key = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256.getName());
+            sha256_HMAC.init(secret_key);
+            return Hex.encodeHexString(sha256_HMAC.doFinal(data.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            LOGGER.severe(e.getMessage());
+            System.exit(1);
+            return null;
+        }
     }
 
-    private void apiError(int status, String response) {
+    private String apiError(int status, String verb, String endpoint, JsonObject data, String response,
+                            MultivaluedMap<String, Object> headers) throws ApiConnectionError {
+        //System.out.println(headers.get("content-length").get(0));
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
-        System.out.println(status + " " + errorObj.get("message"));
-        System.exit(1);
+        String errName = errorObj.get("name").toString();
+        String errMsg = errorObj.get("message").toString();
+        String errLog = String.format("(%d) error on request: %s \n Name: %s \n Message: %s", status,
+                verb + endpoint, errName,
+                errMsg);
+        if (status == 401) {
+            LOGGER.severe(errLog);
+            System.exit(1);
+        } else if (status == 404) {
+            LOGGER.severe(errLog);
+            // order not found
+            if (verb.equalsIgnoreCase("DELETE")) {
+                return errorObj.toString();
+            }
+            sleepApiError(3000); // waits 3000ms until attempting again.
+            return apiCall(verb, endpoint, data);
+        } else if (status == 429) {
+            LOGGER.severe(errLog);
+            System.currentTimeMillis();
+            long rateLimitReset = (Long) headers.get("x-ratelimit-reset").get(0);
+            // seconds to sleep
+            long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
+            LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
+            sleepApiError(toSleep); // waits until attempting again.
+            return apiCall(verb, endpoint, data);
+        } else if (status == 503)  {
+            LOGGER.severe(errLog);
+            sleepApiError(3000); // waits 3000ms until attempting again.
+            return apiCall(verb, endpoint, data);
+        }
+        throw new ApiConnectionError();
+    }
+
+    private void sleepApiError(long ms) {
+        try {
+            Thread.sleep(ms); //wait ms until attempting again.
+        } catch (InterruptedException e) {
+            //Nothing to be done here, if this happens we will just retry sooner.
+        }
     }
 }
