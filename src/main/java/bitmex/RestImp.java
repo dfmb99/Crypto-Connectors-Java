@@ -1,6 +1,5 @@
 package bitmex;
 
-import bitmex.Exceptions.ApiConnectionException;
 import bitmex.Exceptions.UnhandledErrorException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -16,6 +15,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -46,19 +46,17 @@ public class RestImp implements Rest {
     }
 
     /**
-     *
-     * @param verb - 'GET', 'POST', 'DELETE', 'PUT'
+     * @param verb     - 'GET', 'POST', 'DELETE', 'PUT'
      * @param endpoint - endpoint on server
-     * @param data - data sent either in url ('GET') or in the body
+     * @param data     - data sent either in url ('GET') or in the body
      * @return error message if request could not be retried, or retried request response (both as String)
-     * @throws ApiConnectionException - in case of an unhandled connection error
      */
-    public String api_call(String verb, String endpoint, JsonObject data) throws ApiConnectionException {
+    public String api_call(String verb, String endpoint, JsonObject data) {
         WebTarget target = client.target(Rest.url).path(Rest.apiPath + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
                 target = target
-                        .queryParam(name, data.get(name).getAsString());
+                        .queryParam(name, URLEncoder.encode(data.get(name).getAsString(), StandardCharsets.UTF_8));
             }
         }
 
@@ -71,7 +69,8 @@ public class RestImp implements Rest {
             String expires = String.valueOf(Instant.now().getEpochSecond() + 3600);
             URI uri = target.getUri();
             String sigData = String.format("%s%s%s%s%s", verb, uri.getPath() == null ? "" : uri.getPath(),
-                    uri.getQuery() == null ? "" : "?" + uri.getQuery(), expires, verb.equalsIgnoreCase("GET") ? "" :
+                    uri.getQuery() == null ? "" : "?" + uri.toString().split("\\?")[1], expires, verb.equalsIgnoreCase(
+                            "GET") ? "" :
                             data.toString());
             String signature = encode_hmac(apiSecret, sigData);
             httpReq = httpReq
@@ -96,8 +95,9 @@ public class RestImp implements Rest {
 
                 if (r == null) {
                     LOGGER.severe("No response from server.");
-                    throw new ApiConnectionException();
+                    return "";
                 }
+
                 int status = r.getStatus();
                 success = true;
 
@@ -120,7 +120,7 @@ public class RestImp implements Rest {
             }
         }
         LOGGER.severe("Connection Error.");
-        throw new ApiConnectionException();
+        return "";
     }
 
     /**
@@ -130,12 +130,14 @@ public class RestImp implements Rest {
      */
     private Client client_configuration() {
         ClientConfig config = new ClientConfig();
-        //How much time until timeout on opening the TCP connection to the server
+        // how much time until timeout on opening the TCP connection to the server
         config.property(ClientProperties.CONNECT_TIMEOUT, Rest.CONNECTION_TIMEOUT);
-        //How much time to wait for the reply of the server after sending the request
+        // how much time to wait for the reply of the server after sending the request
         config.property(ClientProperties.READ_TIMEOUT, Rest.REPLY_TIMEOUT);
-        //Property to allow to post body data in a 'DELETE' request, otherwise an exception is thrown
+        // property to allow to post body data in a 'DELETE' request, otherwise an exception is thrown
         config.property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true);
+        // suppress warnings for payloads with DELETE calls:
+        java.util.logging.Logger.getLogger("org.glassfish.jersey.client").setLevel(java.util.logging.Level.SEVERE);
         // allow changing http headers, before a request
         System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
         return ClientBuilder.newClient(config);
@@ -163,24 +165,25 @@ public class RestImp implements Rest {
 
     /**
      * Deals with an api call which response was non ok (~200)
-     * @param status - http response code
-     * @param verb - 'GET', 'POST', 'DELETE', 'PUT'
+     *
+     * @param status   - http response code
+     * @param verb     - 'GET', 'POST', 'DELETE', 'PUT'
      * @param endpoint - endpoint on server
-     * @param data - data sent either in url ('GET') or in the body
+     * @param data     - data sent either in url ('GET') or in the body
      * @param response - response as string received by the server
-     * @param headers - headers of http request
+     * @param headers  - headers of http request
      * @return error message if request could not be retried, or retried request response (both as String)
      * @throws UnhandledErrorException - in case of error could not been handled
      */
     private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
-                             MultivaluedMap<String, Object> headers) throws UnhandledErrorException, ApiConnectionException {
+                             MultivaluedMap<String, Object> headers) throws UnhandledErrorException {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
         String errName = errorObj.get("name").toString();
         String errMsg = errorObj.get("message").toString();
         String errLog = String.format("(%d) error on request: %s \n Name: %s \n Message: %s", status,
                 verb + endpoint, errName,
                 errMsg);
-       if (status == 400 || status == 401 || status == 403) {
+        if (status == 400 || status == 401 || status == 403) {
             // Parameter error, Unauthorized or Forbidden
             LOGGER.severe(errLog);
             return errMsg;
@@ -212,6 +215,7 @@ public class RestImp implements Rest {
 
     /**
      * Sleeps code execution for x ms
+     *
      * @param ms - ms amount to sleep
      */
     private void sleep(long ms) {
@@ -220,5 +224,80 @@ public class RestImp implements Rest {
         } catch (InterruptedException e) {
             //Nothing to be done here, if this happens we will just retry sooner.
         }
+    }
+
+    @Override
+    public String get_execution(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String get_instrument(JsonObject data) {
+        return api_call("GET", "/instrument", data);
+    }
+
+    @Override
+    public String get_order(JsonObject data) {
+        return api_call("GET", "/order", data);
+    }
+
+    @Override
+    public String put_order(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String post_order(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String del_order(JsonObject data) {
+        return api_call("DELETE", "/order", data);
+    }
+
+    @Override
+    public String del_order_all(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String put_order_bulk(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String post_order_bulk(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String post_order_cancelAllAfter(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String get_position(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String get_trade_bucketed(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String get_user_margin(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String get_user_walletHistory(JsonObject data) {
+        return null;
+    }
+
+    @Override
+    public String get_user_quoteFillRatio() {
+        return null;
     }
 }
