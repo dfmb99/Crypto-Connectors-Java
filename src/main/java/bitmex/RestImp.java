@@ -1,6 +1,9 @@
 package bitmex;
 
+import bitmex.Exceptions.ApiConnectionException;
+import bitmex.Exceptions.ApiErrorException;
 import bitmex.Exceptions.UnhandledErrorException;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.commons.codec.binary.Hex;
@@ -51,7 +54,7 @@ public class RestImp implements Rest {
      * @param data     - data sent either in url ('GET') or in the body
      * @return error message if request could not be retried, or retried request response (both as String)
      */
-    public String api_call(String verb, String endpoint, JsonObject data) {
+    public String api_call(String verb, String endpoint, JsonObject data) throws ApiConnectionException, ApiErrorException {
         WebTarget target = client.target(Rest.url).path(Rest.apiPath + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
@@ -120,7 +123,7 @@ public class RestImp implements Rest {
             }
         }
         LOGGER.severe("Connection Error.");
-        return "";
+        throw new ApiConnectionException();
     }
 
     /**
@@ -172,11 +175,10 @@ public class RestImp implements Rest {
      * @param data     - data sent either in url ('GET') or in the body
      * @param response - response as string received by the server
      * @param headers  - headers of http request
-     * @return error message if request could not be retried, or retried request response (both as String)
      * @throws UnhandledErrorException - in case of error could not been handled
      */
-    private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
-                             MultivaluedMap<String, Object> headers) throws UnhandledErrorException {
+    private void api_error(int status, String verb, String endpoint, JsonObject data, String response,
+                           MultivaluedMap<String, Object> headers) throws UnhandledErrorException, ApiConnectionException, ApiErrorException {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
         String errName = errorObj.get("name").toString();
         String errMsg = errorObj.get("message").toString();
@@ -186,15 +188,16 @@ public class RestImp implements Rest {
         if (status == 400 || status == 401 || status == 403) {
             // Parameter error, Unauthorized or Forbidden
             LOGGER.severe(errLog);
-            return errMsg;
+            throw new ApiErrorException(errMsg);
         } else if (status == 404) {
             LOGGER.warning(errLog);
             // order not found
             if (verb.equalsIgnoreCase("DELETE")) {
-                return errMsg;
+                throw new ApiErrorException(errMsg);
             }
             sleep(3000); // waits 3000ms until attempting again.
-            return api_call(verb, endpoint, data);
+            api_call(verb, endpoint, data);
+            return;
         } else if (status == 429) {
             LOGGER.warning(errLog);
             System.currentTimeMillis();
@@ -203,14 +206,16 @@ public class RestImp implements Rest {
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
             LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
             sleep(toSleep); // waits until attempting again.
-            return api_call(verb, endpoint, data);
+            api_call(verb, endpoint, data);
+            return;
         } else if (status == 503) {
             LOGGER.warning(errLog);
             sleep(3000); // waits 3000ms until attempting again.
-            return api_call(verb, endpoint, data);
+            api_call(verb, endpoint, data);
+            return;
         }
         LOGGER.severe("Unhandled error. \n " + errLog);
-        throw new UnhandledErrorException();
+        throw new UnhandledErrorException(errLog);
     }
 
     /**
@@ -227,77 +232,164 @@ public class RestImp implements Rest {
     }
 
     @Override
-    public String get_execution(JsonObject data) {
-        return null;
+    public JsonArray get_execution(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/execution", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_instrument(JsonObject data) {
-        return api_call("GET", "/instrument", data);
+    public JsonArray get_execution_tradeHistory(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/execution/tradeHistory", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_order(JsonObject data) {
-        return api_call("GET", "/order", data);
+    public JsonArray get_instrument(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/instrument", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String put_order(JsonObject data) {
-        return null;
+    public JsonArray get_order(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String post_order(JsonObject data) {
-        return null;
+    public JsonObject put_order(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("PUT", "/order", data)).getAsJsonObject();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String del_order(JsonObject data) {
-        return api_call("DELETE", "/order", data);
+    public JsonObject post_order(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("POST", "/order", data)).getAsJsonObject();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String del_order_all(JsonObject data) {
-        return null;
+    public JsonArray del_order(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("DELETE", "/order", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String put_order_bulk(JsonObject data) {
-        return null;
+    public JsonArray del_order_all(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("DELETE", "/order/all", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String post_order_bulk(JsonObject data) {
-        return null;
+    public JsonArray put_order_bulk(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("PUT", "/order/bulk", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String post_order_cancelAllAfter(JsonObject data) {
-        return null;
+    public JsonArray post_order_bulk(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_position(JsonObject data) {
-        return null;
+    public JsonObject post_order_cancelAllAfter(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("POST", "/order/cancelAllAfter", data)).getAsJsonObject();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_trade_bucketed(JsonObject data) {
-        return null;
+    public JsonArray get_position(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/position", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_user_margin(JsonObject data) {
-        return null;
+    public JsonArray get_trade_bucketed(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/trade/bucketed", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_user_walletHistory(JsonObject data) {
-        return null;
+    public JsonObject get_user_margin() {
+        try {
+            JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject(); // Bitmex only allows
+            // BTC as margin
+            return JsonParser.parseString(api_call("GET", "/user/margin", data)).getAsJsonObject();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 
     @Override
-    public String get_user_quoteFillRatio() {
-        return null;
+    public JsonArray get_user_walletHistory(JsonObject data) {
+        try {
+            return JsonParser.parseString(api_call("GET", "/user/walletHistory", data)).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
+    public JsonArray get_user_quoteFillRatio() {
+        try {
+            return JsonParser.parseString(api_call("GET", "/user/quoteFillRatio", new JsonObject())).getAsJsonArray();
+        } catch (ApiConnectionException | ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
     }
 }
