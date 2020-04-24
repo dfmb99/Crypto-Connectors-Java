@@ -6,9 +6,17 @@ import com.google.gson.JsonArray;
 /**
  * Interface to connect to the Bitmex Rest API, see more at https://www.bitmex.com/api/explorer/
  */
-public interface Rest {
-    String url = "https://testnet.bitmex.com";
-    String apiPath = "/api/v1";
+public interface Bitmex {
+    //Rest endpoints and path
+    String REST_TESTNET = "https://testnet.bitmex.com";
+    String REST_MAINNET = "https://www.bitmex.com";
+    String API_PATH = "/api/v1";
+
+    //WebSocket endpoints
+    String WS_TESTNET = "wss://testnet.bitmex.com/realtime";
+    String WS_MAINNET = "wss://www.bitmex.com/realtime";
+
+    //Server configuration
     int CONNECTION_TIMEOUT = 2000;
     int REPLY_TIMEOUT = 2000;
     int RETRY_PERIOD = 3000;
