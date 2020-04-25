@@ -3,15 +3,14 @@ package bitmex;
 import bitmex.Exceptions.ApiConnectionException;
 import bitmex.Exceptions.ApiErrorException;
 import bitmex.Exceptions.UnhandledErrorException;
+import bitmex.utils.Auth;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.apache.commons.codec.binary.Hex;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.client.*;
 import javax.ws.rs.core.MediaType;
@@ -20,12 +19,9 @@ import javax.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
-import java.time.Instant;
+import java.util.Base64;
+import java.util.UUID;
 import java.util.logging.Logger;
-
-import static org.apache.commons.codec.digest.HmacAlgorithms.HMAC_SHA_256;
 
 public class BitmexImp implements Bitmex {
 
@@ -44,10 +40,13 @@ public class BitmexImp implements Bitmex {
      * @param apiKey    - apiKey of client
      * @param apiSecret - apiSecret of client
      * @param symbol - symbol of contract
-     * @param orderIDPrefix - every order placed will start with this ID
+     * @param orderIDPrefix - every order placed will start with this ID (max 8 characters)
      */
-    public BitmexImp(boolean testnet, String apiKey, String apiSecret, String symbol, String orderIDPrefix,
-                     String postOnly) {
+    public BitmexImp(boolean testnet, String apiKey, String apiSecret, String symbol, String orderIDPrefix) {
+        if(orderIDPrefix.length() > 8) {
+            LOGGER.severe("orderIDPrefix max length is 8.");
+            System.exit(1);
+        }
         if (testnet)
             this.url = Bitmex.REST_TESTNET;
         else
@@ -79,13 +78,13 @@ public class BitmexImp implements Bitmex {
                 .header("content-type", "application/json; charset=utf-8")
                 .header("connection", "keep-alive");
 
-        String expires = String.valueOf(Instant.now().getEpochSecond() + 3600);
+        long expires = Auth.generate_expires();
         URI uri = target.getUri();
         String sigData = String.format("%s%s%s%s%s", verb, uri.getPath() == null ? "" : uri.getPath(),
                 uri.getQuery() == null ? "" : "?" + uri.toString().split("\\?")[1], expires, verb.equalsIgnoreCase(
                         "GET") ? "" :
                         data.toString());
-        String signature = encode_hmac(apiSecret, sigData);
+        String signature = Auth.encode_hmac(apiSecret, sigData);
         httpReq = httpReq
                 .header("api-expires", expires)
                 .header("api-key", apiKey)
@@ -107,7 +106,7 @@ public class BitmexImp implements Bitmex {
 
                 if (r == null) {
                     LOGGER.severe("No response from server.");
-                    return "";
+                    throw new ApiConnectionException();
                 }
 
                 int status = r.getStatus();
@@ -153,26 +152,6 @@ public class BitmexImp implements Bitmex {
         // allow changing http headers, before a request
         System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
         return ClientBuilder.newClient(config);
-    }
-
-    /**
-     * Builds a hmac signature given a key and data
-     *
-     * @param key  - key to be used in the hmac signature
-     * @param data - data to be used in the hmac signature
-     * @return result of the hmac signature encryption as String
-     */
-    public static String encode_hmac(String key, String data) {
-        try {
-            Mac sha256_HMAC = Mac.getInstance(HMAC_SHA_256.getName());
-            SecretKeySpec secret_key = new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), HMAC_SHA_256.getName());
-            sha256_HMAC.init(secret_key);
-            return Hex.encodeHexString(sha256_HMAC.doFinal(data.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-            LOGGER.severe(e.getMessage());
-            System.exit(1);
-            return null;
-        }
     }
 
     /**
@@ -240,6 +219,14 @@ public class BitmexImp implements Bitmex {
         }
     }
 
+    /**
+     * Returns new order ID with the given prefix
+     * @return new order ID
+     */
+    private String setNewOrderID() {
+        return orderIDPrefix + Base64.getEncoder().encodeToString((UUID.randomUUID().toString()).getBytes()).substring(0,28);
+    }
+
     @Override
     public JsonArray get_execution(JsonObject data) {
         try {
@@ -293,6 +280,8 @@ public class BitmexImp implements Bitmex {
     @Override
     public JsonObject post_order(JsonObject data) {
         try {
+            // adds cl0rdID property on order
+            data.addProperty("clOrdID", setNewOrderID());
             return JsonParser.parseString(api_call("POST", "/order", data)).getAsJsonObject();
         } catch (ApiConnectionException | ApiErrorException e) {
             LOGGER.warning(e.getMessage());
@@ -333,6 +322,11 @@ public class BitmexImp implements Bitmex {
     @Override
     public JsonArray post_order_bulk(JsonObject data) {
         try {
+            // adds cl0rdID property on each order
+            JsonArray orders = data.get("orders").getAsJsonArray();
+            for (JsonElement e : orders) {
+                e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());;
+            }
             return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
         } catch (ApiConnectionException | ApiErrorException e) {
             LOGGER.warning(e.getMessage());
@@ -373,8 +367,8 @@ public class BitmexImp implements Bitmex {
     @Override
     public JsonObject get_user_margin() {
         try {
-            JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject(); // Bitmex only allows
-            // BTC as margin
+            // Bitmex only allows BTC as margin
+            JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject();
             return JsonParser.parseString(api_call("GET", "/user/margin", data)).getAsJsonObject();
         } catch (ApiConnectionException | ApiErrorException e) {
             LOGGER.warning(e.getMessage());
