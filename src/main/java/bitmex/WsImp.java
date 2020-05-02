@@ -1,6 +1,7 @@
 package bitmex;
 
 import bitmex.utils.Auth;
+import bitmex.utils.BinarySearch;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -9,12 +10,20 @@ import com.google.gson.JsonParser;
 import javax.websocket.*;
 import java.io.IOException;
 import java.net.URI;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.logging.Logger;
+
+/**class MyThread extends Thread {
+    @Override
+    public void run() {
+        while (!Thread.interrupted()) {
+            System.out.println("I am running....");
+        }
+
+        System.out.println("Stopped Running.....");
+    }
+}*/
 
 @ClientEndpoint
 public class WsImp implements Ws {
@@ -52,8 +61,8 @@ public class WsImp implements Ws {
      */
     public void setSubscriptions(String sub) {
         this.subscriptions = sub;
-        String[] split = sub.split(",");
-        for(String str: split) {
+        String[] split = sub.replaceAll("\"", "").split(",");
+        for (String str : split) {
             this.data.put(str.split(":")[0], JsonParser.parseString("[{}]").getAsJsonArray());
         }
     }
@@ -109,7 +118,7 @@ public class WsImp implements Ws {
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
         sendMessage(String.format("{\"op\": \"authKeyExpires\", \"args\": [\"%s\", %d, \"%s\"]}", apiKey, expires, signature));
-        sendMessage(String.format("{\"op\": \"subscribe\", \"args\": [\"%s\"]}",
+        sendMessage(String.format("{\"op\": \"subscribe\", \"args\": [%s]}",
                 this.subscriptions));
     }
 
@@ -134,12 +143,15 @@ public class WsImp implements Ws {
         LOGGER.fine(message);
         JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
         if (obj.has("subscribe")) {
-            LOGGER.info("Subscribed successfully to: " + obj.get("subscribe"));
+            LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
             LOGGER.warning(obj.get("error").getAsString());
         } else if (obj.has("table")) {
-            if (obj.get("table").getAsString().equals("instrument"))
+            if (obj.get("table").getAsString().equals("instrument")) {
                 update_intrument(obj);
+            } else if (obj.get("table").getAsString().equals("orderBookL2")) {
+                update_orderBookL2(obj);
+            }
         }
     }
 
@@ -149,16 +161,84 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_intrument(JsonObject obj) {
-        JsonObject instrumentData = data.get("instrument").get(0).getAsJsonObject();
+        JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
         if (obj.get("action").getAsString().equals("update")) {
-            Set<Map.Entry<String, JsonElement>> entry = obj.get("data").getAsJsonArray().get(0).getAsJsonObject().entrySet();
-            Iterator<Map.Entry<String, JsonElement>> it = entry.iterator();
-            Map.Entry<String, JsonElement> next;
-            while (it.hasNext()) {
-                next = it.next();
-                instrumentData.addProperty(next.getKey(), next.getValue().getAsString());
+            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
+            for (String key : data.keySet()) {
+                instrumentData.addProperty(key, data.get(key).getAsString());
             }
         }
+    }
+
+    /**
+     * Updates data in memory after receiving an ws message with table = 'orderBookL2'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_orderBookL2(JsonObject obj) {
+        JsonArray orderbookData = this.data.get("orderBookL2");
+        JsonArray data = obj.get("data").getAsJsonArray();
+        if (obj.get("action").getAsString().equals("partial")) {
+            this.data.put("orderBookL2", data);
+        } else {
+            //checks every row on data array
+            for (JsonElement elem : data) {
+                long id = elem.getAsJsonObject().get("id").getAsLong();
+                long[] ids = new long[orderbookData.size()];
+                for (int i = 0; i < orderbookData.size(); i++)
+                    ids[i] = orderbookData.get(i).getAsJsonObject().get("id").getAsLong();
+
+                int index = BinarySearch.binarySearchL(ids, 0, ids.length - 1, id);
+                if (index == -1) {
+                    orderbookData = insert(BinarySearch.getIndexInSortedArray(ids, ids.length - 1, id), elem,
+                            orderbookData);
+                } else {
+                    JsonObject bookline = orderbookData.get(index).getAsJsonObject();
+                    if (obj.get("action").getAsString().equals("update"))
+                        bookline.addProperty("size", elem.getAsJsonObject().get("size").getAsLong());
+                    else if (obj.get("action").getAsString().equals("delete"))
+                        bookline.addProperty("size", 0L);
+                    bookline.addProperty("side", elem.getAsJsonObject().get("side").getAsString());
+                }
+            }
+        }
+    }
+
+    /**
+     * Gets size of level2 orderbook row with price == 'price'
+     *
+     * @param price - price of row to query
+     * @return size - size of orderbook row
+     */
+    protected long getL2Size(float price) {
+        JsonArray orderbookData = this.data.get("orderBookL2");
+        float[] ids = new float[orderbookData.size()];
+        for (int i = 0; i < orderbookData.size(); i++)
+            ids[i] = orderbookData.get(i).getAsJsonObject().get("price").getAsFloat();
+
+        int index = BinarySearch.binarySearchF(ids, 0, ids.length - 1, price);
+        return orderbookData.get(index).getAsJsonObject().get("size").getAsLong();
+    }
+
+    /**
+     * Adds a JsonElement to a JSonArray in a given index
+     *
+     * @param index        - index on JsonArray to add element
+     * @param val          - element to be added
+     * @param currentArray - JsonArray to be processed
+     * @return
+     */
+    private JsonArray insert(int index, JsonElement val, JsonArray currentArray) {
+        JsonArray newArray = new JsonArray();
+        for (int i = 0; i < index; i++) {
+            newArray.add(currentArray.get(i));
+        }
+        newArray.add(val);
+
+        for (int i = index; i < currentArray.size(); i++) {
+            newArray.add(currentArray.get(i));
+        }
+        return newArray;
     }
 
     /**
@@ -169,7 +249,7 @@ public class WsImp implements Ws {
      */
     @OnError
     public void onError(Session userSession, Throwable throwable) {
-        LOGGER.warning(throwable.getMessage());
+        LOGGER.warning(throwable.toString());
     }
 
     /**
