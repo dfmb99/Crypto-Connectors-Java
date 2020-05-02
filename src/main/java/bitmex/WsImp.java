@@ -10,20 +10,40 @@ import com.google.gson.JsonParser;
 import javax.websocket.*;
 import java.io.IOException;
 import java.net.URI;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.logging.Logger;
 
-/**class MyThread extends Thread {
+class MyThread extends Thread {
+    private WsImp ws;
+    private final static Logger LOGGER = Logger.getLogger(MyThread.class.getName());
+
+    public MyThread(WsImp ws, Logger logger) {
+        this.ws = ws;
+        this.start();
+    }
+
     @Override
     public void run() {
         while (!Thread.interrupted()) {
-            System.out.println("I am running....");
+            try {
+                LOGGER.finest("[HEARTBEAT] Created.");
+                Thread.sleep(5000);
+                LOGGER.finest("[HEARTBEAT] Sending ping.");
+                this.ws.sendMessage("ping");
+                Thread.sleep(5000);
+                LOGGER.finest("[HEARTBEAT] Reconnecting.");
+                this.ws.closeConnection();
+                this.ws.initConnection();
+            } catch (InterruptedException e) {
+                interrupt();
+            }
         }
-
-        System.out.println("Stopped Running.....");
+        LOGGER.finest("[HEARTBEAT] Suspended.");
     }
-}*/
+}
 
 @ClientEndpoint
 public class WsImp implements Ws {
@@ -37,6 +57,7 @@ public class WsImp implements Ws {
     private String symbol;
     private String subscriptions;
     private ConcurrentMap<String, JsonArray> data;
+    private MyThread heartbeat;
 
     /**
      * Bitmex WebSocket client implementation
@@ -51,6 +72,7 @@ public class WsImp implements Ws {
         this.symbol = symbol;
         this.userSession = null;
         this.subscriptions = "";
+        this.heartbeat = null;
         this.data = new ConcurrentHashMap<String, JsonArray>();
     }
 
@@ -61,10 +83,6 @@ public class WsImp implements Ws {
      */
     public void setSubscriptions(String sub) {
         this.subscriptions = sub;
-        String[] split = sub.replaceAll("\"", "").split(",");
-        for (String str : split) {
-            this.data.put(str.split(":")[0], JsonParser.parseString("[{}]").getAsJsonArray());
-        }
     }
 
     /**
@@ -101,6 +119,7 @@ public class WsImp implements Ws {
             try {
                 LOGGER.warning("Failed to connect to websocket server.");
                 Thread.sleep(Ws.RETRY_PERIOD); //wait until attempting again.
+                this.connect();
             } catch (InterruptedException ie) {
                 //Nothing to be done here, if this happens we will just retry sooner.
             }
@@ -114,6 +133,7 @@ public class WsImp implements Ws {
      */
     @OnOpen
     public void onOpen(Session userSession) {
+        this.heartbeat = new MyThread(this, LOGGER);
         this.userSession = userSession;
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
@@ -129,8 +149,12 @@ public class WsImp implements Ws {
      */
     @OnClose
     public void onClose(CloseReason reason) {
+        if (!this.heartbeat.isInterrupted())
+            this.heartbeat.interrupt();
+        this.heartbeat = null;
         LOGGER.warning(String.format("Websocket closed with code: %d \n Message: %s", reason.getCloseCode(), reason.getReasonPhrase()));
         this.userSession = null;
+        this.connect();
     }
 
     /**
@@ -140,7 +164,14 @@ public class WsImp implements Ws {
      */
     @OnMessage
     public void onMessage(String message) {
+        if (!this.heartbeat.isInterrupted())
+            this.heartbeat.interrupt();
+        this.heartbeat = new MyThread(this, LOGGER);
+        new Thread(() -> {
         LOGGER.fine(message);
+        //if it was an heartbeat message
+        if (message.equalsIgnoreCase("pong"))
+            return;
         JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
         if (obj.has("subscribe")) {
             LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
@@ -153,6 +184,7 @@ public class WsImp implements Ws {
                 update_orderBookL2(obj);
             }
         }
+        }).start();
     }
 
     /**
@@ -161,8 +193,9 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_intrument(JsonObject obj) {
-        JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
         if (obj.get("action").getAsString().equals("update")) {
+            this.data.putIfAbsent("instrument", JsonParser.parseString("[{}]").getAsJsonArray());
+            JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             for (String key : data.keySet()) {
                 instrumentData.addProperty(key, data.get(key).getAsString());
@@ -176,11 +209,13 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_orderBookL2(JsonObject obj) {
-        JsonArray orderbookData = this.data.get("orderBookL2");
         JsonArray data = obj.get("data").getAsJsonArray();
         if (obj.get("action").getAsString().equals("partial")) {
             this.data.put("orderBookL2", data);
         } else {
+            JsonArray orderbookData = this.data.get("orderBookL2");
+            if(orderbookData == null)
+                return;
             //checks every row on data array
             for (JsonElement elem : data) {
                 long id = elem.getAsJsonObject().get("id").getAsLong();
@@ -208,9 +243,12 @@ public class WsImp implements Ws {
      * Gets size of level2 orderbook row with price == 'price'
      *
      * @param price - price of row to query
-     * @return size - size of orderbook row
+     * @return size - size of orderbook row if data is available
+     * -1 otherwise
      */
     protected long getL2Size(float price) {
+        if (this.data.get("orderBookL2") == null)
+            return -1L;
         JsonArray orderbookData = this.data.get("orderBookL2");
         float[] ids = new float[orderbookData.size()];
         for (int i = 0; i < orderbookData.size(); i++)
@@ -218,6 +256,13 @@ public class WsImp implements Ws {
 
         int index = BinarySearch.binarySearchF(ids, 0, ids.length - 1, price);
         return orderbookData.get(index).getAsJsonObject().get("size").getAsLong();
+    }
+
+    protected void checkDelay(JsonObject obj) {
+        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd 'at' HH:mm:ss z");
+        Date date = new Date(System.currentTimeMillis());
+        System.out.print(formatter.format(date) + ": ");
+        System.out.println(obj.get("timestamp"));
     }
 
     /**
