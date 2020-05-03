@@ -2,7 +2,6 @@ package bitmex;
 
 import bitmex.Exceptions.ApiConnectionException;
 import bitmex.Exceptions.ApiErrorException;
-import bitmex.Exceptions.UnhandledErrorException;
 import bitmex.utils.Auth;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -64,7 +63,7 @@ public class BitmexImp implements Bitmex {
      * @param data     - data sent either in url ('GET') or in the body
      * @return error message if request could not be retried, or retried request response (both as String)
      */
-    public String api_call(String verb, String endpoint, JsonObject data) throws ApiConnectionException, ApiErrorException {
+    public String api_call(String verb, String endpoint, JsonObject data) throws ApiErrorException {
         WebTarget target = client.target(url).path(Bitmex.API_PATH + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
@@ -125,13 +124,12 @@ public class BitmexImp implements Bitmex {
                     //Nothing to be done here, if this happens we will just retry sooner.
                 }
                 LOGGER.info("Retrying to execute request.");
-            } catch (UnhandledErrorException e) { // Unhandled error after api request
+            } catch (ApiConnectionException e) { //Unhandled error after api request
                 LOGGER.severe(e.getMessage());
                 System.exit(1);
             }
         }
-        LOGGER.severe("Connection Error.");
-        throw new ApiConnectionException();
+        throw new ApiErrorException("Connection Error.");
     }
 
     /**
@@ -141,15 +139,15 @@ public class BitmexImp implements Bitmex {
      */
     private Client client_configuration() {
         ClientConfig config = new ClientConfig();
-        // how much time until timeout on opening the TCP connection to the server
+        //How much time until timeout on opening the TCP connection to the server
         config.property(ClientProperties.CONNECT_TIMEOUT, Bitmex.CONNECTION_TIMEOUT);
-        // how much time to wait for the reply of the server after sending the request
+        //How much time to wait for the reply of the server after sending the request
         config.property(ClientProperties.READ_TIMEOUT, Bitmex.REPLY_TIMEOUT);
-        // property to allow to post body data in a 'DELETE' request, otherwise an exception is thrown
+        //Property to allow to post body data in a 'DELETE' request, otherwise an exception is thrown
         config.property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true);
-        // suppress warnings for payloads with DELETE calls:
+        //Suppress warnings for payloads with DELETE calls:
         java.util.logging.Logger.getLogger("org.glassfish.jersey.client").setLevel(java.util.logging.Level.SEVERE);
-        // allow changing http headers, before a request
+        //Allow changing http headers, before a request
         System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
         return ClientBuilder.newClient(config);
     }
@@ -163,10 +161,11 @@ public class BitmexImp implements Bitmex {
      * @param data     - data sent either in url ('GET') or in the body
      * @param response - response as string received by the server
      * @param headers  - headers of http request
-     * @throws UnhandledErrorException - in case of error could not been handled
+     * @throws ApiConnectionException - in case of error with connection
+     * @throws ApiErrorException - in case of error with api
      */
     private void api_error(int status, String verb, String endpoint, JsonObject data, String response,
-                           MultivaluedMap<String, Object> headers) throws UnhandledErrorException, ApiConnectionException, ApiErrorException {
+                           MultivaluedMap<String, Object> headers) throws ApiConnectionException, ApiErrorException {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
         String errName = errorObj.get("name").toString();
         String errMsg = errorObj.get("message").toString();
@@ -174,36 +173,36 @@ public class BitmexImp implements Bitmex {
                 verb + endpoint, errName,
                 errMsg);
         if (status == 400 || status == 401 || status == 403) {
-            // Parameter error, Unauthorized or Forbidden
+            //Parameter error, Unauthorized or Forbidden
             LOGGER.severe(errLog);
             throw new ApiErrorException(errMsg);
         } else if (status == 404) {
             LOGGER.warning(errLog);
-            // order not found
+            //Order not found
             if (verb.equalsIgnoreCase("DELETE")) {
                 throw new ApiErrorException(errMsg);
             }
-            sleep(3000); // waits 3000ms until attempting again.
+            sleep(3000); //waits 3000ms until attempting again.
             api_call(verb, endpoint, data);
             return;
         } else if (status == 429) {
             LOGGER.warning(errLog);
             System.currentTimeMillis();
             long rateLimitReset = (Long) headers.get("x-ratelimit-reset").get(0);
-            // seconds to sleep
+            //Seconds to sleep
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
             LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
-            sleep(toSleep); // waits until attempting again.
+            sleep(toSleep); //waits until attempting again.
             api_call(verb, endpoint, data);
             return;
         } else if (status == 503) {
             LOGGER.warning(errLog);
-            sleep(3000); // waits 3000ms until attempting again.
+            sleep(3000); //waits 3000ms until attempting again.
             api_call(verb, endpoint, data);
             return;
         }
         LOGGER.severe("Unhandled error. \n " + errLog);
-        throw new UnhandledErrorException(errLog);
+        throw new ApiErrorException(errLog);
     }
 
     /**
@@ -231,7 +230,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_execution(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/execution", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -241,7 +240,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_execution_tradeHistory(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/execution/tradeHistory", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -251,7 +250,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_instrument(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/instrument", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -261,7 +260,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_order(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -271,7 +270,7 @@ public class BitmexImp implements Bitmex {
     public JsonObject put_order(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("PUT", "/order", data)).getAsJsonObject();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -280,10 +279,10 @@ public class BitmexImp implements Bitmex {
     @Override
     public JsonObject post_order(JsonObject data) {
         try {
-            // adds cl0rdID property on order
+            //Adds cl0rdID property on order
             data.addProperty("clOrdID", setNewOrderID());
             return JsonParser.parseString(api_call("POST", "/order", data)).getAsJsonObject();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -293,7 +292,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray del_order(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("DELETE", "/order", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -303,7 +302,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray del_order_all(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("DELETE", "/order/all", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -313,7 +312,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray put_order_bulk(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("PUT", "/order/bulk", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -322,13 +321,13 @@ public class BitmexImp implements Bitmex {
     @Override
     public JsonArray post_order_bulk(JsonObject data) {
         try {
-            // adds cl0rdID property on each order
+            //Adds cl0rdID property on each order
             JsonArray orders = data.get("orders").getAsJsonArray();
             for (JsonElement e : orders) {
                 e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());;
             }
             return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -338,7 +337,7 @@ public class BitmexImp implements Bitmex {
     public JsonObject post_order_cancelAllAfter(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("POST", "/order/cancelAllAfter", data)).getAsJsonObject();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -348,7 +347,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_position(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/position", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -358,7 +357,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_trade_bucketed(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/trade/bucketed", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -367,10 +366,10 @@ public class BitmexImp implements Bitmex {
     @Override
     public JsonObject get_user_margin() {
         try {
-            // Bitmex only allows BTC as margin
+            //BitMex only allows BTC as margin
             JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject();
             return JsonParser.parseString(api_call("GET", "/user/margin", data)).getAsJsonObject();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -380,7 +379,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_user_walletHistory(JsonObject data) {
         try {
             return JsonParser.parseString(api_call("GET", "/user/walletHistory", data)).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }
@@ -390,7 +389,7 @@ public class BitmexImp implements Bitmex {
     public JsonArray get_user_quoteFillRatio() {
         try {
             return JsonParser.parseString(api_call("GET", "/user/quoteFillRatio", new JsonObject())).getAsJsonArray();
-        } catch (ApiConnectionException | ApiErrorException e) {
+        } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;
         }

@@ -1,5 +1,6 @@
 package bitmex;
 
+import bitmex.Exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
 import com.google.gson.JsonArray;
@@ -12,15 +13,19 @@ import java.io.IOException;
 import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.logging.Logger;
 
-class MyThread extends Thread {
+/**
+ * Heartbeat thread that sends ping messages to the websocket server
+ */
+class HeartbeatThread extends Thread {
     private WsImp ws;
-    private final static Logger LOGGER = Logger.getLogger(MyThread.class.getName());
+    private final static Logger LOGGER = Logger.getLogger(HeartbeatThread.class.getName());
 
-    public MyThread(WsImp ws, Logger logger) {
+    public HeartbeatThread(WsImp ws) {
         this.ws = ws;
         this.start();
     }
@@ -29,19 +34,36 @@ class MyThread extends Thread {
     public void run() {
         while (!Thread.interrupted()) {
             try {
-                LOGGER.finest("[HEARTBEAT] Created.");
                 Thread.sleep(5000);
-                LOGGER.finest("[HEARTBEAT] Sending ping.");
+                LOGGER.fine("Heartbeat thread sending ping.");
                 this.ws.sendMessage("ping");
                 Thread.sleep(5000);
-                LOGGER.finest("[HEARTBEAT] Reconnecting.");
+                LOGGER.finest("Heartbeat thread reconnecting.");
                 this.ws.closeConnection();
                 this.ws.initConnection();
             } catch (InterruptedException e) {
                 interrupt();
             }
         }
-        LOGGER.finest("[HEARTBEAT] Suspended.");
+    }
+}
+
+/**
+ * Thread that deals with web socket messages that that need to be processed synchronously
+ */
+class SubscriptionThread extends Thread {
+    private WsImp ws;
+    private final static Logger LOGGER = Logger.getLogger(SubscriptionThread.class.getName());
+
+    public SubscriptionThread() {
+        this.start();
+    }
+
+    @Override
+    public void run() {
+        while (!Thread.interrupted()) {
+
+        }
     }
 }
 
@@ -56,11 +78,14 @@ public class WsImp implements Ws {
     private String apiSecret;
     private String symbol;
     private String subscriptions;
+    //structure to store threads that deal with specific web socket messages
+    private Map<String, Thread> threads;
+    //structure to store web socket data in local storage
     private ConcurrentMap<String, JsonArray> data;
-    private MyThread heartbeat;
+    private HeartbeatThread heartbeat;
 
     /**
-     * Bitmex WebSocket client implementation
+     * BitMex web socket client implementation
      *
      * @param url - ws endpoint to connect
      */
@@ -88,14 +113,17 @@ public class WsImp implements Ws {
     /**
      * Initialize webSocket connection
      */
-    public void initConnection() {
+    public void initConnection() throws WsError {
+        if (this.getSessionStatus())
+            throw new WsError("Connection already exists.");
         this.connect();
     }
 
     /**
-     * Returns true if ws connection is opened
+     * Returns true if web socket connection is opened
      *
-     * @return true if open, false otherwise
+     * @return true if open,
+     *         false otherwise
      */
     public boolean getSessionStatus() {
         return this.userSession != null;
@@ -112,12 +140,15 @@ public class WsImp implements Ws {
         }
     }
 
+    /**
+     * Connects to BitMex web socket server
+     */
     private void connect() {
         try {
             this.container.connectToServer(this, URI.create(this.url));
         } catch (Exception e) {
             try {
-                LOGGER.warning("Failed to connect to websocket server.");
+                LOGGER.warning("Failed to connect to web socket server.");
                 Thread.sleep(Ws.RETRY_PERIOD); //wait until attempting again.
                 this.connect();
             } catch (InterruptedException ie) {
@@ -133,7 +164,7 @@ public class WsImp implements Ws {
      */
     @OnOpen
     public void onOpen(Session userSession) {
-        this.heartbeat = new MyThread(this, LOGGER);
+        this.heartbeat = new HeartbeatThread(this);
         this.userSession = userSession;
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
@@ -166,24 +197,29 @@ public class WsImp implements Ws {
     public void onMessage(String message) {
         if (!this.heartbeat.isInterrupted())
             this.heartbeat.interrupt();
-        this.heartbeat = new MyThread(this, LOGGER);
+        this.heartbeat = new HeartbeatThread(this);
         new Thread(() -> {
-        LOGGER.fine(message);
-        //if it was an heartbeat message
-        if (message.equalsIgnoreCase("pong"))
-            return;
-        JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
-        if (obj.has("subscribe")) {
-            LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
-        } else if (obj.has("status")) {
-            LOGGER.warning(obj.get("error").getAsString());
-        } else if (obj.has("table")) {
-            if (obj.get("table").getAsString().equals("instrument")) {
-                update_intrument(obj);
-            } else if (obj.get("table").getAsString().equals("orderBookL2")) {
-                update_orderBookL2(obj);
+            LOGGER.fine(message);
+            //if it was an heartbeat message
+            if (message.equalsIgnoreCase("pong"))
+                return;
+            JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
+            if (obj.has("subscribe")) {
+                LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
+            } else if (obj.has("status")) {
+                LOGGER.warning(obj.get("error").getAsString());
+            } else if (obj.has("table")) {
+                String table = obj.get("table").getAsString();
+                if (table.equals("instrument")) {
+                    update_intrument(obj);
+                } else if (table.equals("orderBookL2")) {
+                    update_orderBookL2(obj);
+                } else if (table.equals("liquidation")) {
+                    update_liquidation(obj);
+                } else if (table.equals("order")) {
+                    update_order(obj);
+                }
             }
-        }
         }).start();
     }
 
@@ -214,7 +250,7 @@ public class WsImp implements Ws {
             this.data.put("orderBookL2", data);
         } else {
             JsonArray orderbookData = this.data.get("orderBookL2");
-            if(orderbookData == null)
+            if (orderbookData == null)
                 return;
             //checks every row on data array
             for (JsonElement elem : data) {
@@ -240,10 +276,40 @@ public class WsImp implements Ws {
     }
 
     /**
-     * Gets size of level2 orderbook row with price == 'price'
+     * Updates data in memory after receiving an ws message with table = 'liquidation'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_liquidation(JsonObject obj) {
+        LOGGER.warning(obj.toString());
+        if (obj.get("action").getAsString().equals("insert")) {
+            this.data.putIfAbsent("liquidation", JsonParser.parseString("[]").getAsJsonArray());
+            JsonArray liquidationData = this.data.get("liquidation");
+            JsonArray data = obj.get("data").getAsJsonArray();
+            for (JsonElement elem : data) {
+                synchronized (liquidationData) {
+                    if (liquidationData.size() == Ws.MAX_TABLE_LEN)
+                        liquidationData.remove(0);
+                    liquidationData.add(elem);
+                }
+            }
+        }
+    }
+
+    /**
+     * Updates data in memory after receiving an ws message with table = 'order'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_order(JsonObject obj) {
+        LOGGER.warning(obj.toString());
+    }
+
+    /**
+     * Gets size of level2 orderBook row with price == 'price'
      *
      * @param price - price of row to query
-     * @return size - size of orderbook row if data is available
+     * @return size - size of orderBook row if data is available
      * -1 otherwise
      */
     protected long getL2Size(float price) {
