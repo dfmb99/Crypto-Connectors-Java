@@ -1,6 +1,5 @@
 package bitmex;
 
-import bitmex.Exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
 import com.google.gson.JsonArray;
@@ -111,12 +110,11 @@ public class WsImp implements Ws {
     }
 
     /**
-     * Initialize webSocket connection
+     * Initialize webSocket connection, if there is no user session
      */
-    public void initConnection() throws WsError {
-        if (this.getSessionStatus())
-            throw new WsError("Connection already exists.");
-        this.connect();
+    public void initConnection() {
+        if (!this.getSessionStatus())
+            this.connect();
     }
 
     /**
