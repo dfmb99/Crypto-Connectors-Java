@@ -29,7 +29,6 @@ public class BitmexImp implements Bitmex {
     private final String url;
     private final String apiKey;
     private final String apiSecret;
-    private final String symbol;
     private final String orderIDPrefix;
 
     /**
@@ -38,10 +37,9 @@ public class BitmexImp implements Bitmex {
      * @param testnet   - true if we want to connect to testnet, false otherwise
      * @param apiKey    - apiKey of client
      * @param apiSecret - apiSecret of client
-     * @param symbol - symbol of contract
      * @param orderIDPrefix - every order placed will start with this ID (max 8 characters)
      */
-    public BitmexImp(boolean testnet, String apiKey, String apiSecret, String symbol, String orderIDPrefix) {
+    public BitmexImp(boolean testnet, String apiKey, String apiSecret, String orderIDPrefix) {
         if(orderIDPrefix.length() > 8) {
             LOGGER.severe("orderIDPrefix max length is 8.");
             System.exit(1);
@@ -53,7 +51,6 @@ public class BitmexImp implements Bitmex {
         this.client = client_configuration();
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
-        this.symbol = symbol;
         this.orderIDPrefix = orderIDPrefix;
     }
 
@@ -161,11 +158,10 @@ public class BitmexImp implements Bitmex {
      * @param data     - data sent either in url ('GET') or in the body
      * @param response - response as string received by the server
      * @param headers  - headers of http request
-     * @throws ApiConnectionException - in case of error with connection
      * @throws ApiErrorException - in case of error with api
      */
     private void api_error(int status, String verb, String endpoint, JsonObject data, String response,
-                           MultivaluedMap<String, Object> headers) throws ApiConnectionException, ApiErrorException {
+                           MultivaluedMap<String, Object> headers) throws ApiErrorException {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
         String errName = errorObj.get("name").toString();
         String errMsg = errorObj.get("message").toString();
@@ -324,7 +320,7 @@ public class BitmexImp implements Bitmex {
             //Adds cl0rdID property on each order
             JsonArray orders = data.get("orders").getAsJsonArray();
             for (JsonElement e : orders) {
-                e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());;
+                e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());
             }
             return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
         } catch (ApiErrorException e) {

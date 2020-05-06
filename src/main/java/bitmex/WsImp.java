@@ -12,19 +12,20 @@ import java.io.IOException;
 import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.logging.Logger;
 
 /**
  * Heartbeat thread that sends ping messages to the websocket server
  */
-class HeartbeatThread extends Thread {
+class Heartbeat extends Thread {
     private WsImp ws;
-    private final static Logger LOGGER = Logger.getLogger(HeartbeatThread.class.getName());
+    private final static Logger LOGGER = Logger.getLogger(Heartbeat.class.getName());
 
-    public HeartbeatThread(WsImp ws) {
+    public Heartbeat(WsImp ws) {
         this.ws = ws;
         this.start();
     }
@@ -48,20 +49,30 @@ class HeartbeatThread extends Thread {
 }
 
 /**
- * Thread that deals with web socket messages that that need to be processed synchronously
+ * Thread that deals with web socket messages with table = "order"
  */
-class SubscriptionThread extends Thread {
+class OrderUpdate extends Thread {
     private WsImp ws;
-    private final static Logger LOGGER = Logger.getLogger(SubscriptionThread.class.getName());
+    private final Deque<JsonObject> queue;
+    private final static Logger LOGGER = Logger.getLogger(OrderUpdate.class.getName());
 
-    public SubscriptionThread() {
+    public OrderUpdate(WsImp ws) {
+        this.ws = ws;
+        this.queue = new ConcurrentLinkedDeque<>();
         this.start();
+    }
+
+    public void add( JsonObject obj){
+        this.queue.addLast(obj); // blocks until there is free space in the optionally bounded queue
     }
 
     @Override
     public void run() {
         while (!Thread.interrupted()) {
-
+            JsonObject element;
+            while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
+                this.ws.update_order(element);
+            }
         }
     }
 }
@@ -77,11 +88,11 @@ public class WsImp implements Ws {
     private String apiSecret;
     private String symbol;
     private String subscriptions;
-    //structure to store threads that deal with specific web socket messages
-    private Map<String, Thread> threads;
+    // order messages from web socket need to be ordered and processed synchronously
+    private OrderUpdate orderQueue;
     //structure to store web socket data in local storage
-    private ConcurrentMap<String, JsonArray> data;
-    private HeartbeatThread heartbeat;
+    private Map<String, JsonArray> data;
+    private Heartbeat heartbeat;
 
     /**
      * BitMex web socket client implementation
@@ -97,7 +108,7 @@ public class WsImp implements Ws {
         this.userSession = null;
         this.subscriptions = "";
         this.heartbeat = null;
-        this.data = new ConcurrentHashMap<String, JsonArray>();
+        this.data = new ConcurrentHashMap<>();
     }
 
     /**
@@ -107,6 +118,14 @@ public class WsImp implements Ws {
      */
     public void setSubscriptions(String sub) {
         this.subscriptions = sub;
+        String[] split = sub.split(",");
+        for (String str : split) {
+            String s = str.split(":")[0];
+            this.data.put(s, JsonParser.parseString("[]").getAsJsonArray());
+        }
+
+        this.data.get("instrument").add(JsonParser.parseString("{}").getAsJsonObject());
+        this.orderQueue = new OrderUpdate(this);
     }
 
     /**
@@ -121,7 +140,7 @@ public class WsImp implements Ws {
      * Returns true if web socket connection is opened
      *
      * @return true if open,
-     *         false otherwise
+     * false otherwise
      */
     public boolean getSessionStatus() {
         return this.userSession != null;
@@ -162,7 +181,7 @@ public class WsImp implements Ws {
      */
     @OnOpen
     public void onOpen(Session userSession) {
-        this.heartbeat = new HeartbeatThread(this);
+        this.heartbeat = new Heartbeat(this);
         this.userSession = userSession;
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
@@ -181,7 +200,8 @@ public class WsImp implements Ws {
         if (!this.heartbeat.isInterrupted())
             this.heartbeat.interrupt();
         this.heartbeat = null;
-        LOGGER.warning(String.format("Websocket closed with code: %d \n Message: %s", reason.getCloseCode(), reason.getReasonPhrase()));
+        LOGGER.warning(String.format("Websocket closed with code: %d \n Message: %s", reason.getCloseCode().getCode(),
+                reason.getReasonPhrase()));
         this.userSession = null;
         this.connect();
     }
@@ -195,30 +215,34 @@ public class WsImp implements Ws {
     public void onMessage(String message) {
         if (!this.heartbeat.isInterrupted())
             this.heartbeat.interrupt();
-        this.heartbeat = new HeartbeatThread(this);
-        new Thread(() -> {
-            LOGGER.fine(message);
-            //if it was an heartbeat message
-            if (message.equalsIgnoreCase("pong"))
-                return;
-            JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
-            if (obj.has("subscribe")) {
-                LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
-            } else if (obj.has("status")) {
-                LOGGER.warning(obj.get("error").getAsString());
-            } else if (obj.has("table")) {
-                String table = obj.get("table").getAsString();
-                if (table.equals("instrument")) {
-                    update_intrument(obj);
-                } else if (table.equals("orderBookL2")) {
-                    update_orderBookL2(obj);
-                } else if (table.equals("liquidation")) {
-                    update_liquidation(obj);
-                } else if (table.equals("order")) {
-                    update_order(obj);
-                }
+        this.heartbeat = new Heartbeat(this);
+        LOGGER.fine(message);
+        //if it was an heartbeat message
+        if (message.equalsIgnoreCase("pong"))
+            return;
+        JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
+        if (obj.has("subscribe")) {
+            LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
+        } else if (obj.has("status")) {
+            LOGGER.warning(obj.get("error").getAsString());
+        } else if (obj.has("table")) {
+            String table = obj.get("table").getAsString();
+            switch (table) {
+                case "instrument":
+                    new Thread(()-> { update_intrument(obj); }).start();
+                    break;
+                case "orderBookL2":
+                    new Thread(()-> { update_orderBookL2(obj); }).start();
+                    break;
+                case "liquidation":
+                    new Thread(()-> { update_liquidation(obj); }).start();
+                    break;
+                case "order":
+                    // adds message to the queue that leads with order messages;
+                    orderQueue.add(obj);
+                    break;
             }
-        }).start();
+        }
     }
 
     /**
@@ -228,7 +252,6 @@ public class WsImp implements Ws {
      */
     private void update_intrument(JsonObject obj) {
         if (obj.get("action").getAsString().equals("update")) {
-            this.data.putIfAbsent("instrument", JsonParser.parseString("[{}]").getAsJsonArray());
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             for (String key : data.keySet()) {
@@ -279,11 +302,9 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_liquidation(JsonObject obj) {
-        LOGGER.warning(obj.toString());
+        JsonArray liquidationData = this.data.get("liquidation");
+        JsonArray data = obj.get("data").getAsJsonArray();
         if (obj.get("action").getAsString().equals("insert")) {
-            this.data.putIfAbsent("liquidation", JsonParser.parseString("[]").getAsJsonArray());
-            JsonArray liquidationData = this.data.get("liquidation");
-            JsonArray data = obj.get("data").getAsJsonArray();
             for (JsonElement elem : data) {
                 synchronized (liquidationData) {
                     if (liquidationData.size() == Ws.MAX_TABLE_LEN)
@@ -299,8 +320,19 @@ public class WsImp implements Ws {
      *
      * @param obj - obj received from ws
      */
-    private void update_order(JsonObject obj) {
-        LOGGER.warning(obj.toString());
+    protected void update_order(JsonObject obj) {
+        this.data.putIfAbsent("order", JsonParser.parseString("[]").getAsJsonArray());
+        JsonArray orderData = this.data.get("order");
+        JsonArray data = obj.get("data").getAsJsonArray();
+        if (obj.get("action").getAsString().equals("insert")) {
+            for (JsonElement elem : data) {
+                orderData.add(elem);
+            }
+        } else if (obj.get("action").getAsString().equals("update")) {
+            for (JsonElement elem : data) {
+                //orderData.add(elem);
+            }
+        }
     }
 
     /**
@@ -335,7 +367,7 @@ public class WsImp implements Ws {
      * @param index        - index on JsonArray to add element
      * @param val          - element to be added
      * @param currentArray - JsonArray to be processed
-     * @return
+     * @return newArray - new JsonArray
      */
     private JsonArray insert(int index, JsonElement val, JsonArray currentArray) {
         JsonArray newArray = new JsonArray();
@@ -353,8 +385,8 @@ public class WsImp implements Ws {
     /**
      * Callback hook for Error Events. This method will be invoked when a client receives a error.
      *
-     * @param userSession
-     * @param throwable
+     * @param userSession - current user session
+     * @param throwable   - Error thrown
      */
     @OnError
     public void onError(Session userSession, Throwable throwable) {
@@ -364,7 +396,7 @@ public class WsImp implements Ws {
     /**
      * Send a message.
      *
-     * @param message
+     * @param message - message to be sent
      */
     public void sendMessage(String message) {
         this.userSession.getAsyncRemote().sendText(message);
