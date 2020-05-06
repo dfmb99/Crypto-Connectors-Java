@@ -120,10 +120,9 @@ public class WsImp implements Ws {
         this.subscriptions = sub;
         String[] split = sub.split(",");
         for (String str : split) {
-            String s = str.split(":")[0];
+            String s = str.split(":")[0].substring(1);
             this.data.put(s, JsonParser.parseString("[]").getAsJsonArray());
         }
-
         this.data.get("instrument").add(JsonParser.parseString("{}").getAsJsonObject());
         this.orderQueue = new OrderUpdate(this);
     }
