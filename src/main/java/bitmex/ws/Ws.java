@@ -1,4 +1,4 @@
-package bitmex;
+package bitmex.ws;
 
 import javax.websocket.ClientEndpoint;
 
