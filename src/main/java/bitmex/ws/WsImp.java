@@ -220,6 +220,7 @@ public class WsImp implements Ws {
      */
     @OnMessage
     public void onMessage(String message) {
+        System.out.println(message);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = new HeartbeatThread(this);
@@ -261,15 +262,16 @@ public class WsImp implements Ws {
     /**
      * Updates data in memory after receiving an ws message with table = 'instrument'
      *
-     * @param obj - obj received from ws
+     * @param obj - obj received from web socket
      */
     private void update_intrument(JsonObject obj) {
         if (obj.get("action").getAsString().equals("update")) {
             // data stored in memory
             InstrumentData[] memData = g.fromJson(this.data.get("instrument"), InstrumentData[].class);
             // data received from server
-            InstrumentData[] objData = g.fromJson(this.data.get("instrument"), InstrumentData[].class);
-            memData[0].update(objData[0]);
+            InstrumentData[] objData = g.fromJson(obj.get("data"), InstrumentData[].class);
+            // updates memory with object received
+            memData[0].updateObjMemory(objData[0]);
             this.data.put("instrument", JsonParser.parseString(g.toJson(memData, InstrumentData[].class)).getAsJsonArray());
         }
     }

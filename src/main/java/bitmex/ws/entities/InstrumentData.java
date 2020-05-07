@@ -1,82 +1,174 @@
 package bitmex.ws.entities;
 
 import java.lang.reflect.Field;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 
 public class InstrumentData {
 
-    public String symbol;
-    public String state;
-    public String expiry;
-    public float tickSize;
-    public long multiplier;
-    public boolean isQuanto;
-    public boolean isInverse;
-    public float initMargin;
-    public float maintMargin;
-    public float makerFee;
-    public float takerFee;
-    public String fundingTimestamp;
-    public float fundingRate;
-    public float indicativeFundingRate;
-    public float vwap;
-    public float bidPrice;
-    public float midPrice;
-    public float askPrice;
-    public float impactBidPrice;
-    public float impactMidPrice;
-    public float impactAskPrice;
-    public long openInterest;
-    public long openValue;
-    public float fairBasisRate;
-    public float fairBasis;
-    public float fairPrice;
-    public float markPrice;
-    public String timestamp;
+    private String symbol;
+    private String state;
+    private String expiry;
+    private Float tickSize;
+    private Long multiplier;
+    private Boolean isQuanto;
+    private Boolean isInverse;
+    private Float initMargin;
+    private Float maintMargin;
+    private Float makerFee;
+    private Float takerFee;
+    private String fundingTimestamp;
+    private Float fundingRate;
+    private Float indicativeFundingRate;
+    private Float vwap;
+    private Float bidPrice;
+    private Float midPrice;
+    private Float askPrice;
+    private Float impactBidPrice;
+    private Float impactMidPrice;
+    private Float impactAskPrice;
+    private Long openInterest;
+    private Long openValue;
+    private Float fairBasisRate;
+    private Float fairBasis;
+    private Float fairPrice;
+    private Float markPrice;
+    private String timestamp;
 
-    public InstrumentData(String symbol, String state, String expiry, float tickSize, long multiplier, boolean isQuanto, boolean isInverse, float initMargin, float maintMargin, float makerFee, float takerFee, String fundingTimestamp, float fundingRate, float indicativeFundingRate, float vwap, float bidPrice, float midPrice, float askPrice, float impactBidPrice, float impactMidPrice, float impactAskPrice, long openInterest, long openValue, float fairBasisRate, float fairBasis, float fairPrice, float markPrice, String timestamp) {
+    public InstrumentData() { }
 
-        this.symbol = symbol;
-        this.state = state;
-        this.expiry = expiry;
-        this.tickSize = tickSize;
-        this.multiplier = multiplier;
-        this.isQuanto = isQuanto;
-        this.isInverse = isInverse;
-        this.initMargin = initMargin;
-        this.maintMargin = maintMargin;
-        this.makerFee = makerFee;
-        this.takerFee = takerFee;
-        this.fundingTimestamp = fundingTimestamp;
-        this.fundingRate = fundingRate;
-        this.indicativeFundingRate = indicativeFundingRate;
-        this.vwap = vwap;
-        this.bidPrice = bidPrice;
-        this.midPrice = midPrice;
-        this.askPrice = askPrice;
-        this.impactBidPrice = impactBidPrice;
-        this.impactMidPrice = impactMidPrice;
-        this.impactAskPrice = impactAskPrice;
-        this.openInterest = openInterest;
-        this.openValue = openValue;
-        this.fairBasisRate = fairBasisRate;
-        this.fairBasis = fairBasis;
-        this.fairPrice = fairPrice;
-        this.markPrice = markPrice;
-        this.timestamp = timestamp;
+    public String getSymbol() {
+        return symbol;
+    }
+
+    public String getState() {
+        return state;
+    }
+
+    public String getExpiry() {
+        return expiry;
+    }
+
+    public Float getTickSize() {
+        return tickSize;
+    }
+
+    public Long getMultiplier() {
+        return multiplier;
+    }
+
+    public Boolean getQuanto() {
+        return isQuanto;
+    }
+
+    public Boolean getInverse() {
+        return isInverse;
+    }
+
+    public Float getInitMargin() {
+        return initMargin;
+    }
+
+    public Float getMaintMargin() {
+        return maintMargin;
+    }
+
+    public Float getMakerFee() {
+        return makerFee;
+    }
+
+    public Float getTakerFee() {
+        return takerFee;
+    }
+
+    public String getFundingTimestamp() {
+        return fundingTimestamp;
+    }
+
+    public Float getFundingRate() {
+        return fundingRate;
+    }
+
+    public Float getIndicativeFundingRate() {
+        return indicativeFundingRate;
+    }
+
+    public Float getVwap() {
+        return vwap;
+    }
+
+    public Float getBidPrice() {
+        return bidPrice;
+    }
+
+    public Float getMidPrice() {
+        return midPrice;
+    }
+
+    public Float getAskPrice() {
+        return askPrice;
+    }
+
+    public Float getImpactBidPrice() {
+        return impactBidPrice;
+    }
+
+    public Float getImpactMidPrice() {
+        return impactMidPrice;
+    }
+
+    public Float getImpactAskPrice() {
+        return impactAskPrice;
+    }
+
+    public Long getOpenInterest() {
+        return openInterest;
+    }
+
+    public Long getOpenValue() {
+        return openValue;
+    }
+
+    public Float getFairBasisRate() {
+        return fairBasisRate;
+    }
+
+    public Float getFairBasis() {
+        return fairBasis;
+    }
+
+    public Float getFairPrice() {
+        return fairPrice;
+    }
+
+    public Float getMarkPrice() {
+        return markPrice;
+    }
+
+    public long getTimestamp() {
+        DateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX");
+        Long unixStamp = null;
+        try {
+            unixStamp = format.parse("2020-05-07T10:03:20.000Z").getTime();
+        } catch (ParseException e) {
+            // Do nothing
+        }
+        return unixStamp;
     }
 
     /**
      * Updated this object with the fields of other object if they are not null
      * @param other - other object
      */
-    public void update(InstrumentData other) {
+    public void updateObjMemory(InstrumentData other) {
         Field[] fields = other.getClass().getDeclaredFields();
         for(Field field: fields) {
             try {
-                Object otherValue = field.get(this);
+                Object otherValue = field.get(other);
                 Field thisField = this.getClass().getDeclaredField(field.getName());
                 if(otherValue != null && !otherValue.equals(thisField.get(this)))
-                    thisField.set(thisField.getType(), otherValue);
+                    thisField.set(this, otherValue);
             } catch (IllegalAccessException | NoSuchFieldException e) {
                 // Do nothing
             }
