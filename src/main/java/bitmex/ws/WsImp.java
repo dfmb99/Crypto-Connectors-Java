@@ -1,9 +1,10 @@
 package bitmex.ws;
 
 import bitmex.Bitmex;
-import bitmex.Exceptions.WsError;
+import bitmex.exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
+import bitmex.ws.entities.InstrumentData;
 import com.google.gson.*;
 
 import javax.websocket.*;
@@ -92,6 +93,7 @@ public class WsImp implements Ws {
     // structure to store web socket data in local storage
     private Map<String, JsonArray> data;
     private HeartbeatThread heartbeatThread;
+    private Gson g;
 
     /**
      * BitMex web socket client implementation
@@ -108,6 +110,7 @@ public class WsImp implements Ws {
         this.subscriptions = "";
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
+        this.g = new Gson();
     }
 
     /**
@@ -184,6 +187,7 @@ public class WsImp implements Ws {
      */
     @OnOpen
     public void onOpen(Session userSession) {
+        LOGGER.info(String.format("Connected to: %s", this.url));
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
         long expires = Auth.generate_expires();
@@ -261,10 +265,12 @@ public class WsImp implements Ws {
      */
     private void update_intrument(JsonObject obj) {
         if (obj.get("action").getAsString().equals("update")) {
-            JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
-            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
-            for (String key : data.keySet())
-                instrumentData.addProperty(key, data.get(key).getAsString());
+            // data stored in memory
+            InstrumentData[] memData = g.fromJson(this.data.get("instrument"), InstrumentData[].class);
+            // data received from server
+            InstrumentData[] objData = g.fromJson(this.data.get("instrument"), InstrumentData[].class);
+            memData[0].update(objData[0]);
+            String asd = g.toJson(memData, InstrumentData[].class);
         }
     }
 

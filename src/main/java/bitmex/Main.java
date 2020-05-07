@@ -1,15 +1,22 @@
 package bitmex;
 
-import bitmex.Exceptions.WsError;
+import bitmex.exceptions.WsError;
 import bitmex.ws.WsImp;
+
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class Main {
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws InterruptedException, ParseException {
 
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
-
-        try {
+            DateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX");
+            Date date = format.parse("2020-05-07T10:03:20.000Z");
+            System.out.println(date.getTime());
+      try {
             // open websocket
             //TESTNET
             //
@@ -36,6 +43,7 @@ public class Main {
         } catch (Exception ex) {
             System.err.println("InterruptedException exception: " + ex.getMessage());
         }
+
         /**
         Map<String, JsonArray> data = new ConcurrentHashMap<>();
         data.put("order", new JsonArray());
