@@ -270,7 +270,7 @@ public class WsImp implements Ws {
             // data received from server
             InstrumentData[] objData = g.fromJson(this.data.get("instrument"), InstrumentData[].class);
             memData[0].update(objData[0]);
-            String asd = g.toJson(memData, InstrumentData[].class);
+            this.data.put("instrument", JsonParser.parseString(g.toJson(memData, InstrumentData[].class)).getAsJsonArray());
         }
     }
 

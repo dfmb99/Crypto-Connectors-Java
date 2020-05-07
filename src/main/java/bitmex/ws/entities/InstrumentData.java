@@ -4,7 +4,7 @@ import java.lang.reflect.Field;
 
 public class InstrumentData {
 
-    public final String symbol;
+    public String symbol;
     public String state;
     public String expiry;
     public float tickSize;
@@ -72,13 +72,11 @@ public class InstrumentData {
     public void update(InstrumentData other) {
         Field[] fields = other.getClass().getDeclaredFields();
         for(Field field: fields) {
-            // type of the field
-            Class<?> type = field.getType();
             try {
-                Object otherValue = field.get(type);
+                Object otherValue = field.get(this);
                 Field thisField = this.getClass().getDeclaredField(field.getName());
-                if(otherValue != null && !otherValue.equals(thisField.get(type)))
-                    thisField.set(type, otherValue);
+                if(otherValue != null && !otherValue.equals(thisField.get(this)))
+                    thisField.set(thisField.getType(), otherValue);
             } catch (IllegalAccessException | NoSuchFieldException e) {
                 // Do nothing
             }
