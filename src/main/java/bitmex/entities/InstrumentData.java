@@ -1,9 +1,6 @@
-package bitmex.ws.entities;
+package bitmex.entities;
 
 import java.lang.reflect.Field;
-import java.text.DateFormat;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
 
 public class InstrumentData {
 
@@ -147,14 +144,7 @@ public class InstrumentData {
     }
 
     public long getTimestamp() {
-        DateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX");
-        Long unixStamp = null;
-        try {
-            unixStamp = format.parse("2020-05-07T10:03:20.000Z").getTime();
-        } catch (ParseException e) {
-            // Do nothing
-        }
-        return unixStamp;
+        return TimeStamp.getTimestamp(timestamp);
     }
 
     /**

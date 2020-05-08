@@ -1,4 +1,4 @@
-package bitmex.ws.entities;
+package bitmex.entities;
 
 public class LiquidationData {
     private String orderID;

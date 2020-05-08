@@ -35,9 +35,13 @@ public class Main {
                     wsError.printStackTrace();
                 }
                 ws.initConnection();
-
+                try {
+                    Thread.sleep(3000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
                 while (true) {
-                    //System.out.println(ws.getL2Size(9030));
+                    //System.out.println(ws.getL2Size(9820));
                 }
             }).start();
         } catch (Exception ex) {

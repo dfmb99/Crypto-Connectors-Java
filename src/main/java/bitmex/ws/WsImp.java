@@ -4,7 +4,6 @@ import bitmex.Bitmex;
 import bitmex.exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
-import bitmex.ws.entities.InstrumentData;
 import com.google.gson.*;
 
 import javax.websocket.*;
@@ -22,7 +21,7 @@ import java.util.logging.Logger;
  * Heartbeat thread that sends ping messages to the websocket server
  */
 class HeartbeatThread extends Thread {
-    private WsImp ws;
+    private final WsImp ws;
     private final static Logger LOGGER = Logger.getLogger(HeartbeatThread.class.getName());
 
     public HeartbeatThread(WsImp ws) {
@@ -38,11 +37,11 @@ class HeartbeatThread extends Thread {
                 LOGGER.fine("Heartbeat thread sending ping.");
                 this.ws.sendMessage("ping");
                 Thread.sleep(5000);
-                LOGGER.finest("Heartbeat thread reconnecting.");
+                LOGGER.fine("Heartbeat thread reconnecting.");
                 this.ws.closeConnection();
                 this.ws.initConnection();
             } catch (InterruptedException e) {
-                interrupt();
+                LOGGER.warning("Execution interrupted.");
             }
         }
     }
@@ -52,7 +51,7 @@ class HeartbeatThread extends Thread {
  * Thread that deals with web socket messages with table = "order"
  */
 class OrderAsyncThread extends Thread {
-    private WsImp ws;
+    private final WsImp ws;
     private final Deque<JsonObject> queue;
     private final static Logger LOGGER = Logger.getLogger(OrderAsyncThread.class.getName());
 
@@ -69,9 +68,14 @@ class OrderAsyncThread extends Thread {
     @Override
     public void run() {
         while (!Thread.interrupted()) {
-            JsonObject element;
-            while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
-                this.ws.update_order(element);
+            try {
+                this.wait();
+                JsonObject element;
+                while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
+                    this.ws.update_order(element);
+                }
+            } catch (InterruptedException e) {
+                // Do nothing
             }
         }
     }
@@ -81,19 +85,19 @@ class OrderAsyncThread extends Thread {
 public class WsImp implements Ws {
 
     private final static Logger LOGGER = Logger.getLogger(Bitmex.class.getName());
-    private WebSocketContainer container;
+    private final WebSocketContainer container;
     private Session userSession;
-    private String url;
-    private String apiKey;
-    private String apiSecret;
-    private String symbol;
+    private final String url;
+    private final String apiKey;
+    private final String apiSecret;
+    private final String symbol;
     private String subscriptions;
     // order messages from web socket need to be ordered and processed synchronously
     private OrderAsyncThread orderQueue;
     // structure to store web socket data in local storage
-    private Map<String, JsonArray> data;
+    private final Map<String, JsonArray> data;
     private HeartbeatThread heartbeatThread;
-    private Gson g;
+    private final Gson g;
 
     /**
      * BitMex web socket client implementation
@@ -206,7 +210,6 @@ public class WsImp implements Ws {
     public void onClose(CloseReason reason) {
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
-        this.heartbeatThread = null;
         LOGGER.warning(String.format("Websocket closed with code: %d \n Message: %s", reason.getCloseCode().getCode(),
                 reason.getReasonPhrase()));
         this.userSession = null;
@@ -220,11 +223,6 @@ public class WsImp implements Ws {
      */
     @OnMessage
     public void onMessage(String message) {
-        System.out.println(message);
-        if (!this.heartbeatThread.isInterrupted())
-            this.heartbeatThread.interrupt();
-        this.heartbeatThread = new HeartbeatThread(this);
-        LOGGER.fine(message);
         //if it was an heartbeat message
         if (message.equalsIgnoreCase("pong"))
             return;
@@ -237,19 +235,13 @@ public class WsImp implements Ws {
             String table = obj.get("table").getAsString();
             switch (table) {
                 case "instrument":
-                    new Thread(() -> {
-                        update_intrument(obj);
-                    }).start();
+                    new Thread(() -> update_intrument(obj)).start();
                     break;
                 case "orderBookL2":
-                    new Thread(() -> {
-                        update_orderBookL2(obj);
-                    }).start();
+                    new Thread(() -> update_orderBookL2(obj)).start();
                     break;
                 case "liquidation":
-                    new Thread(() -> {
-                        update_liquidation(obj);
-                    }).start();
+                    new Thread(() -> update_liquidation(obj)).start();
                     break;
                 case "order":
                     // adds message to the queue that leads with order messages;
@@ -266,13 +258,12 @@ public class WsImp implements Ws {
      */
     private void update_intrument(JsonObject obj) {
         if (obj.get("action").getAsString().equals("update")) {
-            // data stored in memory
-            InstrumentData[] memData = g.fromJson(this.data.get("instrument"), InstrumentData[].class);
-            // data received from server
-            InstrumentData[] objData = g.fromJson(obj.get("data"), InstrumentData[].class);
-            // updates memory with object received
-            memData[0].updateObjMemory(objData[0]);
-            this.data.put("instrument", JsonParser.parseString(g.toJson(memData, InstrumentData[].class)).getAsJsonArray());
+            this.data.putIfAbsent("instrument", JsonParser.parseString("[{}]").getAsJsonArray());
+            JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
+            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
+            for (String key : data.keySet()) {
+                instrumentData.addProperty(key, data.get(key).getAsString());
+            }
         }
     }
 
@@ -307,6 +298,8 @@ public class WsImp implements Ws {
                     else if (obj.get("action").getAsString().equals("delete"))
                         bookline.addProperty("size", 0L);
                     bookline.addProperty("side", elem.getAsJsonObject().get("side").getAsString());
+                    if (bookline.get("price").getAsFloat() == 9800)
+                        System.out.println(bookline.get("size").getAsLong());
                 }
             }
         }
@@ -346,26 +339,26 @@ public class WsImp implements Ws {
             // iterates over object received
             for (JsonElement elemOrig : data) {
                 // iterates over orderData stored in memory
-                for(JsonElement elemRec : orderDataCopy) {
+                for (JsonElement elemRec : orderDataCopy) {
                     // orderId in orderData element
                     String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
                     // orderID in object received element
                     String orderIDRec = elemRec.getAsJsonObject().get("orderID").getAsString();
                     // if same orderID
-                    if(orderIDRec.equalsIgnoreCase(orderIDOrig)) {
+                    if (orderIDRec.equalsIgnoreCase(orderIDOrig)) {
                         JsonObject objRec = elemRec.getAsJsonObject();
                         // iterate data on object received and updates local memory
                         for (String key : objRec.keySet()) {
-                            System.out.println(key + ": "+objRec.get(key).toString());
-                            if(!objRec.get(key).isJsonNull())
-                                elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());}
-                    // if different orderIds adds new json to orderData array
+                            System.out.println(key + ": " + objRec.get(key).toString());
+                            if (!objRec.get(key).isJsonNull())
+                                elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
+                        }
+                        // if different orderIds adds new json to orderData array
                     } else
                         orderData.add(elemOrig);
                 }
             }
         }
-        System.out.println(this.data.get("order").toString());
     }
 
     /**
@@ -418,11 +411,10 @@ public class WsImp implements Ws {
     /**
      * Callback hook for Error Events. This method will be invoked when a client receives a error.
      *
-     * @param userSession - current user session
-     * @param throwable   - Error thrown
+     * @param throwable - Error thrown
      */
     @OnError
-    public void onError(Session userSession, Throwable throwable) {
+    public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
     }
 
