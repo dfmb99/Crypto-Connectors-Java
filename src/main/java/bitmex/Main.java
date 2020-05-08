@@ -2,20 +2,13 @@ package bitmex;
 
 import bitmex.exceptions.WsError;
 import bitmex.ws.WsImp;
-
-import java.text.DateFormat;
 import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 
 public class Main {
 
     public static void main(String[] args) throws InterruptedException, ParseException {
 
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
-            DateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX");
-            Date date = format.parse("2020-05-07T10:03:20.000Z");
-            System.out.println(date.getTime());
       try {
             // open websocket
             //TESTNET
@@ -27,21 +20,16 @@ public class Main {
             //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
             new Thread(() -> {
                 WsImp ws = new WsImp(Bitmex.WS_MAINNET, "swGvEbz7gQG1uAFRMheNby3D",
-                        "0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "XBTUSD");
-                try {
-                    ws.setSubscriptions("\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
-                            "\"order:XBTUSD\"");
-                } catch (WsError wsError) {
-                    wsError.printStackTrace();
-                }
-                ws.initConnection();
+                        "0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
+                               "\"order:XBTUSD\"" );
+
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
                 while (true) {
-                    //System.out.println(ws.getL2Size(9820));
+                    System.out.println(ws.getL2Size(9880));
                 }
             }).start();
         } catch (Exception ex) {

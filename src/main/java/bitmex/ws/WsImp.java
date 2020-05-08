@@ -1,13 +1,11 @@
 package bitmex.ws;
 
 import bitmex.Bitmex;
-import bitmex.exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
 import com.google.gson.*;
 
 import javax.websocket.*;
-import java.io.IOException;
 import java.net.URI;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -31,17 +29,18 @@ class HeartbeatThread extends Thread {
 
     @Override
     public void run() {
+        long startTime = System.currentTimeMillis();
+        boolean sentPing = false;
         while (!Thread.interrupted()) {
-            try {
-                Thread.sleep(5000);
-                LOGGER.fine("Heartbeat thread sending ping.");
+            if (System.currentTimeMillis() - startTime > 5000 && !sentPing) {
+                sentPing = true;
+                LOGGER.info("Heartbeat thread sending ping.");
                 this.ws.sendMessage("ping");
-                Thread.sleep(5000);
-                LOGGER.fine("Heartbeat thread reconnecting.");
-                this.ws.closeConnection();
-                this.ws.initConnection();
-            } catch (InterruptedException e) {
-                LOGGER.warning("Execution interrupted.");
+            } else if (System.currentTimeMillis() - startTime > 10000) {
+                LOGGER.info("Heartbeat thread reconnecting.");
+                //this.ws.closeConnection();
+                this.ws.connect();
+                this.interrupt();
             }
         }
     }
@@ -68,14 +67,9 @@ class OrderAsyncThread extends Thread {
     @Override
     public void run() {
         while (!Thread.interrupted()) {
-            try {
-                this.wait();
-                JsonObject element;
-                while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
-                    this.ws.update_order(element);
-                }
-            } catch (InterruptedException e) {
-                // Do nothing
+            JsonObject element;
+            while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
+                this.ws.update_order(element);
             }
         }
     }
@@ -85,12 +79,11 @@ class OrderAsyncThread extends Thread {
 public class WsImp implements Ws {
 
     private final static Logger LOGGER = Logger.getLogger(Bitmex.class.getName());
-    private final WebSocketContainer container;
+    private WebSocketContainer container;
     private Session userSession;
     private final String url;
     private final String apiKey;
     private final String apiSecret;
-    private final String symbol;
     private String subscriptions;
     // order messages from web socket need to be ordered and processed synchronously
     private OrderAsyncThread orderQueue;
@@ -104,32 +97,30 @@ public class WsImp implements Ws {
      *
      * @param url - ws endpoint to connect
      */
-    public WsImp(String url, String apiKey, String apiSecret, String symbol) {
+    public WsImp(String url, String apiKey, String apiSecret, String subscriptions) {
         this.container = ContainerProvider.getWebSocketContainer();
         this.url = url;
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
-        this.symbol = symbol;
         this.userSession = null;
         this.subscriptions = "";
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
         this.g = new Gson();
+        this.setSubscriptions(subscriptions);
+        this.connect();
     }
 
     /**
      * Sets subscriptions to be sent to the ws server
      *
      * @param sub - subscriptions as String
-     * @throws WsError - if we try to subscribe to a invalid symbol
      */
-    public void setSubscriptions(String sub) throws WsError {
+    private void setSubscriptions(String sub) {
         this.subscriptions = sub;
         String[] split = sub.split(",");
         for (String str : split) {
             String[] strArr = str.split(":");
-            if (strArr.length > 1 && !strArr[1].substring(0, strArr[1].length() - 1).equalsIgnoreCase(symbol))
-                throw new WsError(String.format("Invalid symbol in subscription: %s", str));
             this.data.put(strArr[0].substring(1), new JsonArray());
         }
         if (this.data.containsKey("instrument"))
@@ -139,48 +130,14 @@ public class WsImp implements Ws {
     }
 
     /**
-     * Initialize webSocket connection, if there is no user session
-     */
-    public void initConnection() {
-        if (!this.getSessionStatus())
-            this.connect();
-    }
-
-    /**
-     * Returns true if web socket connection is opened
-     *
-     * @return true if open,
-     * false otherwise
-     */
-    public boolean getSessionStatus() {
-        return this.userSession != null;
-    }
-
-    /**
-     * Closes this current user session
-     */
-    public void closeConnection() {
-        try {
-            this.userSession.close();
-        } catch (IOException e) {
-            LOGGER.warning("Could not close ws connection.");
-        }
-    }
-
-    /**
      * Connects to BitMex web socket server
      */
-    private void connect() {
+    void connect() {
         try {
             this.container.connectToServer(this, URI.create(this.url));
         } catch (Exception e) {
-            try {
-                LOGGER.warning("Failed to connect to web socket server.");
-                Thread.sleep(Ws.RETRY_PERIOD); //wait until attempting again.
-                this.connect();
-            } catch (InterruptedException ie) {
-                //Nothing to be done here, if this happens we will just retry sooner.
-            }
+            LOGGER.warning("Failed to connect to web socket server.");
+            this.connect();
         }
     }
 
@@ -210,8 +167,8 @@ public class WsImp implements Ws {
     public void onClose(CloseReason reason) {
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
-        LOGGER.warning(String.format("Websocket closed with code: %d \n Message: %s", reason.getCloseCode().getCode(),
-                reason.getReasonPhrase()));
+        this.heartbeatThread = null;
+        LOGGER.warning(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
         this.userSession = null;
         this.connect();
     }
@@ -222,7 +179,10 @@ public class WsImp implements Ws {
      * @param message The text message
      */
     @OnMessage
-    public void onMessage(String message) {
+    public void onMessage(String message) throws InterruptedException {
+        if (!this.heartbeatThread.isInterrupted())
+            this.heartbeatThread.interrupt();
+        this.heartbeatThread = new HeartbeatThread(this);
         //if it was an heartbeat message
         if (message.equalsIgnoreCase("pong"))
             return;
@@ -231,6 +191,12 @@ public class WsImp implements Ws {
             LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
             LOGGER.warning(obj.get("error").getAsString());
+            // Rate limited
+            if(obj.get("status").getAsInt() == 429) {
+                long waitTime = obj.get("meta").getAsJsonObject().get("retryAfter").getAsLong();
+                LOGGER.warning(String.format("Rate-limited, retrying on %d seconds.", waitTime));
+                Thread.sleep(waitTime * 1000);
+            }
         } else if (obj.has("table")) {
             String table = obj.get("table").getAsString();
             switch (table) {
@@ -298,8 +264,6 @@ public class WsImp implements Ws {
                     else if (obj.get("action").getAsString().equals("delete"))
                         bookline.addProperty("size", 0L);
                     bookline.addProperty("side", elem.getAsJsonObject().get("side").getAsString());
-                    if (bookline.get("price").getAsFloat() == 9800)
-                        System.out.println(bookline.get("size").getAsLong());
                 }
             }
         }
@@ -349,7 +313,6 @@ public class WsImp implements Ws {
                         JsonObject objRec = elemRec.getAsJsonObject();
                         // iterate data on object received and updates local memory
                         for (String key : objRec.keySet()) {
-                            System.out.println(key + ": " + objRec.get(key).toString());
                             if (!objRec.get(key).isJsonNull())
                                 elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
                         }
@@ -423,7 +386,7 @@ public class WsImp implements Ws {
      *
      * @param message - message to be sent
      */
-    public void sendMessage(String message) {
+    protected void sendMessage(String message) {
         this.userSession.getAsyncRemote().sendText(message);
     }
 
