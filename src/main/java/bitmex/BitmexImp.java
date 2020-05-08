@@ -1,7 +1,7 @@
 package bitmex;
 
-import bitmex.Exceptions.ApiConnectionException;
-import bitmex.Exceptions.ApiErrorException;
+import bitmex.exceptions.ApiConnectionException;
+import bitmex.exceptions.ApiErrorException;
 import bitmex.utils.Auth;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
