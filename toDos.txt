@@ -1,4 +1,0 @@
-1) No to need to always use JsonObject / JsonArray, when possible use Java classes, so we can easily convert from json
-<-> Java class with Gson
-
-2) Algorithm to clean websocket memory from time to time

@@ -1,6 +1,7 @@
 package bitmex.ws;
 
 import bitmex.Bitmex;
+import bitmex.exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
 import com.google.gson.*;
@@ -97,7 +98,7 @@ public class WsImp implements Ws {
      *
      * @param url - ws endpoint to connect
      */
-    public WsImp(String url, String apiKey, String apiSecret, String subscriptions) {
+    public WsImp(String url, String apiKey, String apiSecret, String subscriptions) throws WsError {
         this.container = ContainerProvider.getWebSocketContainer();
         this.url = url;
         this.apiKey = apiKey;
@@ -116,15 +117,22 @@ public class WsImp implements Ws {
      *
      * @param sub - subscriptions as String
      */
-    private void setSubscriptions(String sub) {
+    private void setSubscriptions(String sub) throws WsError {
         this.subscriptions = sub;
         String[] split = sub.split(",");
         for (String str : split) {
             String[] strArr = str.split(":");
+            if(strArr.length < 2)
+                throw new WsError("Error on subscription format.");
             this.data.put(strArr[0].substring(1), new JsonArray());
         }
+
         if (this.data.containsKey("instrument"))
             this.data.get("instrument").add(new JsonObject());
+        if (this.data.containsKey("margin"))
+            this.data.get("margin").add(new JsonObject());
+        if (this.data.containsKey("position"))
+            this.data.get("position").add(new JsonObject());
         if (this.data.containsKey("order"))
             this.orderQueue = new OrderAsyncThread(this);
     }
@@ -137,6 +145,11 @@ public class WsImp implements Ws {
             this.container.connectToServer(this, URI.create(this.url));
         } catch (Exception e) {
             LOGGER.warning("Failed to connect to web socket server.");
+            try {
+                Thread.sleep(Ws.RETRY_PERIOD);
+            } catch (InterruptedException interruptedException) {
+                // Do nothing
+            }
             this.connect();
         }
     }
@@ -209,6 +222,18 @@ public class WsImp implements Ws {
                 case "liquidation":
                     new Thread(() -> update_liquidation(obj)).start();
                     break;
+                case "margin":
+                    new Thread(() -> update_margin(obj)).start();
+                    break;
+                case "position":
+                    new Thread(() -> update_position(obj)).start();
+                    break;
+                case "tradeBin1m":
+                    new Thread(() -> update_tradeBin1m(obj)).start();
+                    break;
+                case "execution":
+                    System.out.println(message);
+                    break;
                 case "order":
                     // adds message to the queue that leads with order messages;
                     orderQueue.add(obj);
@@ -223,8 +248,8 @@ public class WsImp implements Ws {
      * @param obj - obj received from web socket
      */
     private void update_intrument(JsonObject obj) {
-        if (obj.get("action").getAsString().equals("update")) {
-            this.data.putIfAbsent("instrument", JsonParser.parseString("[{}]").getAsJsonArray());
+        String action = obj.get("action").getAsString();
+        if (action.equals("update") || action.equals("insert")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             for (String key : data.keySet()) {
@@ -275,16 +300,71 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_liquidation(JsonObject obj) {
-        JsonArray liquidationData = this.data.get("liquidation");
-        JsonArray data = obj.get("data").getAsJsonArray();
-        if (obj.get("action").getAsString().equals("insert")) {
+        String action = obj.get("action").getAsString();
+        if (action.equals("update") || action.equals("insert")) {
+            JsonArray liquidationData = this.data.get("liquidation");
+            JsonArray data = obj.get("data").getAsJsonArray();
             for (JsonElement elem : data) {
-                if (liquidationData.size() == Ws.MAX_TABLE_LEN)
+                if (liquidationData.size() == Ws.LIQ_MAX_LEN)
                     liquidationData.remove(0);
                 liquidationData.add(elem);
             }
         }
     }
+
+    /**
+     * Updates data in memory after receiving an ws message with table = 'margin'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_margin(JsonObject obj) {
+        String action = obj.get("action").getAsString();
+        if (action.equals("update") || action.equals("insert")) {
+            System.out.println(this.data.get("margin"));
+            JsonObject marginData = this.data.get("margin").get(0).getAsJsonObject();
+            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
+            for (String key : data.keySet()) {
+                if (!data.get(key).isJsonNull())
+                    marginData.addProperty(key, data.get(key).getAsString());
+            }
+        }
+    }
+
+    /**
+     * Updates data in memory after receiving an ws message with table = 'position'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_position(JsonObject obj) {
+        String action = obj.get("action").getAsString();
+        if (action.equals("update") || action.equals("insert")) {
+            JsonObject positionData = this.data.get("position").get(0).getAsJsonObject();
+            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
+            for (String key : data.keySet()) {
+                if (!data.get(key).isJsonNull())
+                    positionData.addProperty(key, data.get(key).getAsString());
+            }
+        }
+    }
+
+    /**
+     * Updates data in memory after receiving an ws message with table = 'tradeBin1m'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_tradeBin1m(JsonObject obj) {
+        String action = obj.get("action").getAsString();
+        if (action.equals("update") || action.equals("insert")) {
+            JsonArray tradeBin1mData = this.data.get("tradeBin1m");
+            JsonArray data = obj.get("data").getAsJsonArray();
+            for (JsonElement elem : data) {
+                if (tradeBin1mData.size() == Ws.TRADE_BIN_MAX_LEN)
+                    tradeBin1mData.remove(0);
+                tradeBin1mData.add(elem);
+            }
+        }
+    }
+
 
     /**
      * Updates data in memory after receiving an ws message with table = 'order'

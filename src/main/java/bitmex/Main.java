@@ -2,6 +2,7 @@ package bitmex;
 
 import bitmex.exceptions.WsError;
 import bitmex.ws.WsImp;
+
 import java.text.ParseException;
 
 public class Main {
@@ -19,9 +20,13 @@ public class Main {
             //swGvEbz7gQG1uAFRMheNby3D
             //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
             new Thread(() -> {
-                WsImp ws = new WsImp(Bitmex.WS_MAINNET, "swGvEbz7gQG1uAFRMheNby3D",
-                        "0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
-                               "\"order:XBTUSD\"" );
+                try {
+                    WsImp ws = new WsImp(Bitmex.WS_TESTNET, "XGN7I-BhV7giM-ihQwo9Rw3F",
+                            "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
+                                   "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"" );
+                } catch (WsError wsError) {
+                    wsError.printStackTrace();
+                }
 
                 try {
                     Thread.sleep(3000);
@@ -29,7 +34,7 @@ public class Main {
                     e.printStackTrace();
                 }
                 while (true) {
-                    System.out.println(ws.getL2Size(9880));
+                    //System.out.println(ws.getL2Size(9880));
                 }
             }).start();
         } catch (Exception ex) {

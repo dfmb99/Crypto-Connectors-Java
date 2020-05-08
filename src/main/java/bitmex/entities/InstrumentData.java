@@ -1,7 +1,5 @@
 package bitmex.entities;
 
-import java.lang.reflect.Field;
-
 public class InstrumentData {
 
     private String symbol;
@@ -147,21 +145,4 @@ public class InstrumentData {
         return TimeStamp.getTimestamp(timestamp);
     }
 
-    /**
-     * Updated this object with the fields of other object if they are not null
-     * @param other - other object
-     */
-    public void updateObjMemory(InstrumentData other) {
-        Field[] fields = other.getClass().getDeclaredFields();
-        for(Field field: fields) {
-            try {
-                Object otherValue = field.get(other);
-                Field thisField = this.getClass().getDeclaredField(field.getName());
-                if(otherValue != null && !otherValue.equals(thisField.get(this)))
-                    thisField.set(this, otherValue);
-            } catch (IllegalAccessException | NoSuchFieldException e) {
-                // Do nothing
-            }
-        }
-    }
 }
