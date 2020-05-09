@@ -13,8 +13,8 @@ public class TradeBinData {
 
     public TradeBinData() {}
 
-    public long getTimestamp() {
-        return TimeStamp.getTimestamp(timestamp);
+    public String getTimestamp() {
+        return this.timestamp;
     }
 
     public String getSymbol() {

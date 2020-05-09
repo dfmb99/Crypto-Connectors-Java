@@ -141,8 +141,7 @@ public class InstrumentData {
         return markPrice;
     }
 
-    public long getTimestamp() {
-        return TimeStamp.getTimestamp(timestamp);
+    public String getTimestamp() {
+        return this.timestamp;
     }
-
 }

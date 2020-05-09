@@ -1,6 +1,8 @@
 package bitmex.ws;
 
 import bitmex.Bitmex;
+import bitmex.entities.InstrumentData;
+import bitmex.entities.TimeStamp;
 import bitmex.exceptions.WsError;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
@@ -35,11 +37,10 @@ class HeartbeatThread extends Thread {
         while (!Thread.interrupted()) {
             if (System.currentTimeMillis() - startTime > 5000 && !sentPing) {
                 sentPing = true;
-                LOGGER.info("Heartbeat thread sending ping.");
+                LOGGER.fine("Heartbeat thread sending ping.");
                 this.ws.sendMessage("ping");
             } else if (System.currentTimeMillis() - startTime > 10000) {
-                LOGGER.info("Heartbeat thread reconnecting.");
-                //this.ws.closeConnection();
+                LOGGER.fine("Heartbeat thread reconnecting.");
                 this.ws.connect();
                 this.interrupt();
             }
@@ -122,7 +123,7 @@ public class WsImp implements Ws {
         String[] split = sub.split(",");
         for (String str : split) {
             String[] strArr = str.split(":");
-            if(strArr.length < 2)
+            if (strArr.length < 2)
                 throw new WsError("Error on subscription format.");
             this.data.put(strArr[0].substring(1), new JsonArray());
         }
@@ -205,7 +206,7 @@ public class WsImp implements Ws {
         } else if (obj.has("status")) {
             LOGGER.warning(obj.get("error").getAsString());
             // Rate limited
-            if(obj.get("status").getAsInt() == 429) {
+            if (obj.get("status").getAsInt() == 429) {
                 long waitTime = obj.get("meta").getAsJsonObject().get("retryAfter").getAsLong();
                 LOGGER.warning(String.format("Rate-limited, retrying on %d seconds.", waitTime));
                 Thread.sleep(waitTime * 1000);
@@ -232,7 +233,7 @@ public class WsImp implements Ws {
                     new Thread(() -> update_tradeBin1m(obj)).start();
                     break;
                 case "execution":
-                    System.out.println(message);
+                    new Thread(() -> update_execution(obj)).start();
                     break;
                 case "order":
                     // adds message to the queue that leads with order messages;
@@ -320,7 +321,6 @@ public class WsImp implements Ws {
     private void update_margin(JsonObject obj) {
         String action = obj.get("action").getAsString();
         if (action.equals("update") || action.equals("insert")) {
-            System.out.println(this.data.get("margin"));
             JsonObject marginData = this.data.get("margin").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             for (String key : data.keySet()) {
@@ -365,6 +365,24 @@ public class WsImp implements Ws {
         }
     }
 
+    /**
+     * Updates data in memory after receiving an ws message with table = 'execution'
+     *
+     * @param obj - obj received from ws
+     */
+    private void update_execution(JsonObject obj) {
+        String action = obj.get("action").getAsString();
+        if (action.equals("update") || action.equals("insert")) {
+            JsonArray executionData = this.data.get("execution");
+            JsonArray data = obj.get("data").getAsJsonArray();
+            for (JsonElement elem : data) {
+                if (executionData.size() == Ws.EXEC_MAX_LEN)
+                    executionData.remove(0);
+                executionData.add(elem);
+            }
+        }
+    }
+
 
     /**
      * Updates data in memory after receiving an ws message with table = 'order'
@@ -380,26 +398,35 @@ public class WsImp implements Ws {
         } else if (obj.get("action").getAsString().equals("update")) {
             //copy of orderData to prevent ConcurrentModification Exception
             JsonArray orderDataCopy = JsonParser.parseString(orderData.toString()).getAsJsonArray();
+            boolean orderMatchFound;
             // iterates over object received
-            for (JsonElement elemOrig : data) {
-                // iterates over orderData stored in memory
-                for (JsonElement elemRec : orderDataCopy) {
+            for (JsonElement elemRec : data) {
+                orderMatchFound = false;
+                JsonObject objRec = elemRec.getAsJsonObject();
+                // orderID in object received element
+                String orderIDRec = objRec.get("orderID").getAsString();
+                // ordStatus of order received
+                JsonElement ordStatus = objRec.get("ordStatus");
+                // iterates over orderData stored in memory/
+                for (JsonElement elemOrig : orderDataCopy) {
                     // orderId in orderData element
                     String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
-                    // orderID in object received element
-                    String orderIDRec = elemRec.getAsJsonObject().get("orderID").getAsString();
                     // if same orderID
-                    if (orderIDRec.equalsIgnoreCase(orderIDOrig)) {
-                        JsonObject objRec = elemRec.getAsJsonObject();
-                        // iterate data on object received and updates local memory
-                        for (String key : objRec.keySet()) {
-                            if (!objRec.get(key).isJsonNull())
-                                elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
-                        }
-                        // if different orderIds adds new json to orderData array
-                    } else
-                        orderData.add(elemOrig);
+                    if (orderIDRec.equals(orderIDOrig)) {
+                        orderMatchFound = true;
+                        // if order still active we update, otherwise we delete the order
+                        if (ordStatus == null || ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")) {
+                            // iterate data on object received and updates local memory
+                            for (String key : objRec.keySet()) {
+                                if (!objRec.get(key).isJsonNull())
+                                    elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
+                            }
+                        } else
+                            orderData.remove(elemOrig);
+                    }
                 }
+                if (!orderMatchFound && (ordStatus == null || ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
+                    orderData.add(elemRec);
             }
         }
     }
@@ -423,11 +450,14 @@ public class WsImp implements Ws {
         return orderbookData.get(index).getAsJsonObject().get("size").getAsLong();
     }
 
-    protected void checkDelay(JsonObject obj) {
-        SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd 'at' HH:mm:ss z");
-        Date date = new Date(System.currentTimeMillis());
-        System.out.print(formatter.format(date) + ": ");
-        System.out.println(obj.get("timestamp"));
+    /**
+     * Returns difference in ms between current time and last instrument web socket update
+     * @return difference in ms, Long.MINVALUE if error
+     */
+    public long check_latency() {
+        JsonObject obj = this.data.get("instrument").get(0).getAsJsonObject();
+        if(!obj.has("timestamp")) return Long.MIN_VALUE;
+        return System.currentTimeMillis() - TimeStamp.getTimestamp(obj.get("timestamp").getAsString());
     }
 
     /**

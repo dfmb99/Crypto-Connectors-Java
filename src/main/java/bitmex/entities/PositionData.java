@@ -65,7 +65,7 @@ public class PositionData {
         return bankruptPrice;
     }
 
-    public long getTimestamp() {
-        return TimeStamp.getTimestamp(timestamp);
+    public String getTimestamp() {
+        return this.timestamp;
     }
 }

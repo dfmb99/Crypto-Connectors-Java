@@ -75,8 +75,7 @@ public class OrderData {
         return avgPx;
     }
 
-    public long getTimestamp() {
-        return TimeStamp.getTimestamp(timestamp);
+    public String getTimestamp() {
+        return this.timestamp;
     }
-
 }

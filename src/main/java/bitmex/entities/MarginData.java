@@ -50,7 +50,7 @@ public class MarginData {
         return availableMargin;
     }
 
-    public long getTimestamp() {
-        return TimeStamp.getTimestamp(timestamp);
+    public String getTimestamp() {
+        return this.timestamp;
     }
 }
