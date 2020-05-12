@@ -1,6 +1,5 @@
 package bitmex.ws;
 
-import bitmex.entities.TimeStamp;
 import bitmex.rest.Rest;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
@@ -101,7 +100,7 @@ public class WsImp implements Ws {
     public WsImp(boolean testnet, String apiKey, String apiSecret, String subscriptions) {
         this.container = ContainerProvider.getWebSocketContainer();
         if (testnet)
-            this.url = Ws.WS_MAINNET;
+            this.url = Ws.WS_TESTNET;
         else
             this.url = Ws.WS_MAINNET;
         this.apiKey = apiKey;
@@ -113,6 +112,7 @@ public class WsImp implements Ws {
         this.g = new Gson();
         this.setSubscriptions(subscriptions);
         this.connect();
+        this.waitForData();
     }
 
     /**
@@ -214,7 +214,8 @@ public class WsImp implements Ws {
                 long waitTime = obj.get("meta").getAsJsonObject().get("retryAfter").getAsLong();
                 LOGGER.warning(String.format("Rate-limited, retrying on %d seconds.", waitTime));
                 Thread.sleep(waitTime * 1000);
-            }
+            } else
+                System.exit(1);
         } else if (obj.has("table")) {
             String table = obj.get("table").getAsString();
             switch (table) {
@@ -340,6 +341,8 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_margin(JsonObject obj) {
+        System.out.println(obj);
+        System.out.println(obj);
         String action = obj.get("action").getAsString();
         if (action.equals("update") || action.equals("insert")) {
             JsonObject marginData = this.data.get("margin").get(0).getAsJsonObject();
@@ -472,17 +475,6 @@ public class WsImp implements Ws {
     }
 
     /**
-     * Returns difference in ms between current time and last instrument web socket update
-     *
-     * @return difference in ms, Long.MINVALUE if error
-     */
-    public long check_latency() {
-        JsonObject obj = this.data.get("instrument").get(0).getAsJsonObject();
-        if (!obj.has("timestamp")) return Long.MIN_VALUE;
-        return System.currentTimeMillis() - TimeStamp.getTimestamp(obj.get("timestamp").getAsString());
-    }
-
-    /**
      * Returns open liquidations on
      * @return JsonArray data
      */
@@ -555,8 +547,10 @@ public class WsImp implements Ws {
     /**
      * waits for instrument ws data, blocking thread
      */
-    public void waitForData() {
-        while(this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") != null) {};
+    private void waitForData() {
+        LOGGER.info("Waiting for data.");
+        while( this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") == null ) { };
+        LOGGER.info("Data received.");
     }
 
     /**

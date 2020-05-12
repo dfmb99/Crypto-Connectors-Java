@@ -1,7 +1,7 @@
 package bitmex;
 
-import bitmex.ws.WsImp;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 
 import java.text.ParseException;
 
@@ -12,13 +12,13 @@ public class Main {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
         // open websocket
         //TESTNET
-        //r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu
+        //XGN7I-BhV7giM-ihQwo9Rw3F
         //LImmg5mVEHDonA34aniNXwGpsWWYERfZxshUX3ihfXEZ4wwM
 
         //MAIN
         //swGvEbz7gQG1uAFRMheNby3D
         //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
-
+/*
         WsImp ws = null;
         ws = new WsImp(true, "XGN7I-BhV7giM-ihQwo9Rw3F",
                 "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
@@ -26,7 +26,10 @@ public class Main {
         while (true) {
             System.out.println(ws.check_latency());
         }
-
+*/
+        JsonObject obj = new JsonObject();
+        obj.addProperty("asdasd", "asdas");
+        System.out.println(obj.keySet().size());
     }
 }
 
