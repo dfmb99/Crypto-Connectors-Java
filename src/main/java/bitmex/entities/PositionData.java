@@ -1,21 +1,35 @@
 package bitmex.entities;
 
 public class PositionData {
-    private String symbol;
-    private Float initMarginReq;
-    private Float maintMarginReq;
-    private Float leverage;
-    private Boolean crossMargin;
-    private Long currentQty;
-    private Float markPrice;
-    private Long realisedPnl;
-    private Long unrealisedPnl;
-    private Float avgEntryPrice;
-    private Float liquidationPrice;
-    private Float bankruptPrice;
-    private String timestamp;
+    private final String symbol;
+    private final Float initMarginReq;
+    private final Float maintMarginReq;
+    private final Float leverage;
+    private final Boolean crossMargin;
+    private final Long currentQty;
+    private final Float markPrice;
+    private final Long realisedPnl;
+    private final Long unrealisedPnl;
+    private final Float avgEntryPrice;
+    private final Float liquidationPrice;
+    private final Float bankruptPrice;
+    private final String timestamp;
 
-    public PositionData() { }
+    public PositionData(String symbol, Float initMarginReq, Float maintMarginReq, Float leverage, Boolean crossMargin, Long currentQty, Float markPrice, Long realisedPnl, Long unrealisedPnl, Float avgEntryPrice, Float liquidationPrice, Float bankruptPrice, String timestamp) {
+        this.symbol = symbol;
+        this.initMarginReq = initMarginReq;
+        this.maintMarginReq = maintMarginReq;
+        this.leverage = leverage;
+        this.crossMargin = crossMargin;
+        this.currentQty = currentQty;
+        this.markPrice = markPrice;
+        this.realisedPnl = realisedPnl;
+        this.unrealisedPnl = unrealisedPnl;
+        this.avgEntryPrice = avgEntryPrice;
+        this.liquidationPrice = liquidationPrice;
+        this.bankruptPrice = bankruptPrice;
+        this.timestamp = timestamp;
+    }
 
     public String getSymbol() {
         return symbol;
@@ -66,6 +80,6 @@ public class PositionData {
     }
 
     public String getTimestamp() {
-        return this.timestamp;
+        return timestamp;
     }
 }

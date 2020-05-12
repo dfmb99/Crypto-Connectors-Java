@@ -1,17 +1,13 @@
 package bitmex.ws;
 
-import bitmex.Bitmex;
-import bitmex.entities.InstrumentData;
 import bitmex.entities.TimeStamp;
-import bitmex.exceptions.WsError;
+import bitmex.rest.Rest;
 import bitmex.utils.Auth;
 import bitmex.utils.BinarySearch;
 import com.google.gson.*;
 
 import javax.websocket.*;
 import java.net.URI;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,7 +76,7 @@ class OrderAsyncThread extends Thread {
 @ClientEndpoint
 public class WsImp implements Ws {
 
-    private final static Logger LOGGER = Logger.getLogger(Bitmex.class.getName());
+    private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
     private WebSocketContainer container;
     private Session userSession;
     private final String url;
@@ -95,13 +91,19 @@ public class WsImp implements Ws {
     private final Gson g;
 
     /**
-     * BitMex web socket client implementation
+     * BitMex web socket client implementation for one symbol
      *
-     * @param url - ws endpoint to connect
+     * @param testnet - true if we want to connect to testnet, false otherwise
+     * @param apiKey - apiKey
+     * @param apiSecret - apiSecret
+     * @param subscriptions - string to send to server to subscribe (Eg: 'instrument:XBTUSD,margin:*,orderBookL2:XBTUSD' ), subscriptions should have always same symbol otherwise conflicts can happen, create new object if subscriptions have different symbols
      */
-    public WsImp(String url, String apiKey, String apiSecret, String subscriptions) throws WsError {
+    public WsImp(boolean testnet, String apiKey, String apiSecret, String subscriptions) {
         this.container = ContainerProvider.getWebSocketContainer();
-        this.url = url;
+        if (testnet)
+            this.url = Ws.WS_MAINNET;
+        else
+            this.url = Ws.WS_MAINNET;
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
         this.userSession = null;
@@ -118,13 +120,15 @@ public class WsImp implements Ws {
      *
      * @param sub - subscriptions as String
      */
-    private void setSubscriptions(String sub) throws WsError {
+    private void setSubscriptions(String sub) {
         this.subscriptions = sub;
         String[] split = sub.split(",");
         for (String str : split) {
             String[] strArr = str.split(":");
-            if (strArr.length < 2)
-                throw new WsError("Error on subscription format.");
+            if (strArr.length < 2) {
+                LOGGER.severe("orderIDPrefix max length is 8.");
+                System.exit(1);
+            }
             this.data.put(strArr[0].substring(1), new JsonArray());
         }
 
@@ -302,13 +306,30 @@ public class WsImp implements Ws {
      */
     private void update_liquidation(JsonObject obj) {
         String action = obj.get("action").getAsString();
+        JsonArray liquidationData = this.data.get("liquidation");
+        JsonArray data = obj.get("data").getAsJsonArray();
         if (action.equals("update") || action.equals("insert")) {
-            JsonArray liquidationData = this.data.get("liquidation");
-            JsonArray data = obj.get("data").getAsJsonArray();
             for (JsonElement elem : data) {
                 if (liquidationData.size() == Ws.LIQ_MAX_LEN)
                     liquidationData.remove(0);
                 liquidationData.add(elem);
+            }
+        } else if (action.equals("delete")) {
+            //copy of liquidationData to prevent ConcurrentModification Exception
+            JsonArray liquidationDataCopy = JsonParser.parseString(liquidationData.toString()).getAsJsonArray();
+            for (JsonElement elem : data) {
+                // orderID in object received element
+                String orderIDRec = elem.getAsJsonObject().get("orderID").getAsString();
+                // iterates over liquidationData stored in memory/
+                for (JsonElement elemOrig : liquidationDataCopy) {
+                    // orderId in liquidationData element
+                    String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
+                    // if same orderID
+                    if (orderIDRec.equals(orderIDOrig)) {
+                        liquidationData.remove(elemOrig);
+                        break;
+                    }
+                }
             }
         }
     }
@@ -383,7 +404,6 @@ public class WsImp implements Ws {
         }
     }
 
-
     /**
      * Updates data in memory after receiving an ws message with table = 'order'
      *
@@ -423,6 +443,7 @@ public class WsImp implements Ws {
                             }
                         } else
                             orderData.remove(elemOrig);
+                        break;
                     }
                 }
                 if (!orderMatchFound && (ordStatus == null || ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
@@ -452,12 +473,90 @@ public class WsImp implements Ws {
 
     /**
      * Returns difference in ms between current time and last instrument web socket update
+     *
      * @return difference in ms, Long.MINVALUE if error
      */
     public long check_latency() {
         JsonObject obj = this.data.get("instrument").get(0).getAsJsonObject();
-        if(!obj.has("timestamp")) return Long.MIN_VALUE;
+        if (!obj.has("timestamp")) return Long.MIN_VALUE;
         return System.currentTimeMillis() - TimeStamp.getTimestamp(obj.get("timestamp").getAsString());
+    }
+
+    /**
+     * Returns open liquidations on
+     * @return JsonArray data
+     */
+    public JsonArray get_open_liquidation() {
+        return this.data.get("liquidations");
+    }
+
+    /**
+     * Returns instrument data
+     * @return JsonArray data
+     */
+    public JsonArray get_instrument() {
+        return this.data.get("instrument");
+    }
+
+    /**
+     * Returns tradeBin1m data
+     * @return JsonArray data
+     */
+    public JsonArray get_trabeBin1m() {
+        return this.data.get("tradeBin1m");
+    }
+
+    /**
+     * Return orderBookL2 data
+     * @return JsonArray data
+     */
+    public JsonArray get_orderBookL2() {
+        return this.data.get("orderBookL2");
+    }
+
+    /**
+     * Return margin data
+     * @return JsonArray data
+     */
+    public JsonArray get_margin() {
+        return this.data.get("margin");
+    }
+
+    /**
+     * Returns execution data
+     * @return JsonArray data
+     */
+    public JsonArray get_execution() {
+        return this.data.get("execution");
+    }
+
+    /**
+     * Returns position data
+     * @return JsonArray data
+     */
+    public JsonArray get_position() {
+        return this.data.get("position");
+    }
+
+    /**
+     * Returns order data
+     * @return JsonArray data
+     */
+    public JsonArray get_openOrders(String orderIDPrefix) {
+        JsonArray ret = new JsonArray();
+        JsonArray openOrders = this.data.get("order");
+        for (JsonElement elemRec : openOrders) {
+            if(elemRec.getAsJsonObject().get("orderID").getAsString().startsWith(orderIDPrefix))
+                ret.add(elemRec);
+        }
+        return ret;
+    }
+
+    /**
+     * waits for instrument ws data, blocking thread
+     */
+    public void waitForData() {
+        while(this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") != null) {};
     }
 
     /**

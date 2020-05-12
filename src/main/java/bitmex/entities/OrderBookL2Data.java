@@ -1,25 +1,22 @@
 package bitmex.entities;
 
 public class OrderBookL2Data {
-    private String symbol;
-    private long id;
-    private String side;
-    private long size;
-    private float price;
+    private final String symbol;
+    private final long id;
+    private final String side;
+    private final long size;
+    private final float price;
 
-    public OrderBookL2Data() {
+    public OrderBookL2Data(String symbol, long id, String side, long size, float price) {
+        this.symbol = symbol;
+        this.id = id;
+        this.side = side;
+        this.size = size;
+        this.price = price;
     }
 
     public boolean equals(OrderBookL2Data other) {
         return this.id == other.id;
-    }
-
-    public void setSide(String side) {
-        this.side = side;
-    }
-
-    public void setSize(long size) {
-        this.size = size;
     }
 
     public String getSymbol() {

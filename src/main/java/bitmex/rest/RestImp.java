@@ -1,4 +1,4 @@
-package bitmex;
+package bitmex.rest;
 
 import bitmex.exceptions.ApiConnectionException;
 import bitmex.exceptions.ApiErrorException;
@@ -22,9 +22,9 @@ import java.util.Base64;
 import java.util.UUID;
 import java.util.logging.Logger;
 
-public class BitmexImp implements Bitmex {
+public class RestImp implements Rest {
 
-    private final static Logger LOGGER = Logger.getLogger(Bitmex.class.getName());
+    private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
     private final Client client;
     private final String url;
     private final String apiKey;
@@ -39,15 +39,15 @@ public class BitmexImp implements Bitmex {
      * @param apiSecret - apiSecret of client
      * @param orderIDPrefix - every order placed will start with this ID (max 8 characters)
      */
-    public BitmexImp(boolean testnet, String apiKey, String apiSecret, String orderIDPrefix) {
+    public RestImp(boolean testnet, String apiKey, String apiSecret, String orderIDPrefix) {
         if(orderIDPrefix.length() > 8) {
             LOGGER.severe("orderIDPrefix max length is 8.");
             System.exit(1);
         }
         if (testnet)
-            this.url = Bitmex.REST_TESTNET;
+            this.url = Rest.REST_TESTNET;
         else
-            this.url = Bitmex.REST_MAINNET;
+            this.url = Rest.REST_MAINNET;
         this.client = client_configuration();
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
@@ -61,7 +61,7 @@ public class BitmexImp implements Bitmex {
      * @return error message if request could not be retried, or retried request response (both as String)
      */
     public String api_call(String verb, String endpoint, JsonObject data) throws ApiErrorException {
-        WebTarget target = client.target(url).path(Bitmex.API_PATH + endpoint);
+        WebTarget target = client.target(url).path(Rest.API_PATH + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
                 target = target
@@ -116,7 +116,7 @@ public class BitmexImp implements Bitmex {
             } catch (ProcessingException pe) { //Error in communication with server
                 LOGGER.info("Timeout occurred.");
                 try {
-                    Thread.sleep(Bitmex.RETRY_PERIOD); //wait until attempting again.
+                    Thread.sleep(Rest.RETRY_PERIOD); //wait until attempting again.
                 } catch (InterruptedException e) {
                     //Nothing to be done here, if this happens we will just retry sooner.
                 }
@@ -137,9 +137,9 @@ public class BitmexImp implements Bitmex {
     private Client client_configuration() {
         ClientConfig config = new ClientConfig();
         //How much time until timeout on opening the TCP connection to the server
-        config.property(ClientProperties.CONNECT_TIMEOUT, Bitmex.CONNECTION_TIMEOUT);
+        config.property(ClientProperties.CONNECT_TIMEOUT, Rest.CONNECTION_TIMEOUT);
         //How much time to wait for the reply of the server after sending the request
-        config.property(ClientProperties.READ_TIMEOUT, Bitmex.REPLY_TIMEOUT);
+        config.property(ClientProperties.READ_TIMEOUT, Rest.REPLY_TIMEOUT);
         //Property to allow to post body data in a 'DELETE' request, otherwise an exception is thrown
         config.property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true);
         //Suppress warnings for payloads with DELETE calls:

@@ -1,17 +1,27 @@
 package bitmex.entities;
 
 public class TradeBinData {
-    private String timestamp;
-    private String symbol;
-    private Float open;
-    private Float high;
-    private Float low;
-    private Float close;
-    private Long trades;
-    private Long volume;
-    private Float vwap;
+    private final String timestamp;
+    private final String symbol;
+    private final Float open;
+    private final Float high;
+    private final Float low;
+    private final Float close;
+    private final Long trades;
+    private final Long volume;
+    private final Float vwap;
 
-    public TradeBinData() {}
+    public TradeBinData(String timestamp, String symbol, Float open, Float high, Float low, Float close, Long trades, Long volume, Float vwap) {
+        this.timestamp = timestamp;
+        this.symbol = symbol;
+        this.open = open;
+        this.high = high;
+        this.low = low;
+        this.close = close;
+        this.trades = trades;
+        this.volume = volume;
+        this.vwap = vwap;
+    }
 
     public String getTimestamp() {
         return this.timestamp;

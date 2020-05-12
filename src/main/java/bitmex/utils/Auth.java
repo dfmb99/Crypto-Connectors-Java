@@ -1,6 +1,6 @@
 package bitmex.utils;
 
-import bitmex.Bitmex;
+import bitmex.rest.Rest;
 import org.apache.commons.codec.binary.Hex;
 
 import javax.crypto.Mac;
@@ -14,7 +14,7 @@ import java.util.logging.Logger;
 import static org.apache.commons.codec.digest.HmacAlgorithms.HMAC_SHA_256;
 
 public class Auth {
-    private final static Logger LOGGER = Logger.getLogger(Bitmex.class.getName());
+    private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
 
     /**
      * Builds a hmac signature given a key and data

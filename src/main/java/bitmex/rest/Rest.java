@@ -1,4 +1,4 @@
-package bitmex;
+package bitmex.rest;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonArray;
@@ -6,15 +6,11 @@ import com.google.gson.JsonArray;
 /**
  * Interface to connect to the Bitmex Rest API, see more at https://www.bitmex.com/api/explorer/
  */
-public interface Bitmex {
+public interface Rest {
     //Rest endpoints and path
     String REST_TESTNET = "https://testnet.bitmex.com";
     String REST_MAINNET = "https://www.bitmex.com";
     String API_PATH = "/api/v1";
-
-    //WebSocket endpoints
-    String WS_TESTNET = "wss://testnet.bitmex.com/realtime";
-    String WS_MAINNET = "wss://www.bitmex.com/realtime";
 
     //Server configuration
     int CONNECTION_TIMEOUT = 2000;

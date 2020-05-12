@@ -1,22 +1,37 @@
 package bitmex.entities;
 
 public class ExecutionData {
-    private String orderID;
-    private String clOrdID;
-    private String symbol;
-    private String side;
-    private Long orderQty;
-    private Float price;
-    private Float stopPx;
-    private String ordType;
-    private String execInst;
-    private String timeInForce;
-    private String ordStatus;
-    private String leavesQty;
-    private String cumQty;
-    private String timestamp;
+    private final String orderID;
+    private final String clOrdID;
+    private final String symbol;
+    private final String side;
+    private final Long orderQty;
+    private final Float price;
+    private final Float stopPx;
+    private final String ordType;
+    private final String execInst;
+    private final String timeInForce;
+    private final String ordStatus;
+    private final String leavesQty;
+    private final String cumQty;
+    private final String timestamp;
 
-    public ExecutionData() { }
+    public ExecutionData(String orderID, String clOrdID, String symbol, String side, Long orderQty, Float price, Float stopPx, String ordType, String execInst, String timeInForce, String ordStatus, String leavesQty, String cumQty, String timestamp) {
+        this.orderID = orderID;
+        this.clOrdID = clOrdID;
+        this.symbol = symbol;
+        this.side = side;
+        this.orderQty = orderQty;
+        this.price = price;
+        this.stopPx = stopPx;
+        this.ordType = ordType;
+        this.execInst = execInst;
+        this.timeInForce = timeInForce;
+        this.ordStatus = ordStatus;
+        this.leavesQty = leavesQty;
+        this.cumQty = cumQty;
+        this.timestamp = timestamp;
+    }
 
     public String getOrderID() {
         return orderID;
@@ -71,6 +86,6 @@ public class ExecutionData {
     }
 
     public String getTimestamp() {
-        return this.timestamp;
+        return timestamp;
     }
 }

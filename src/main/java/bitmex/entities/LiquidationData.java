@@ -1,13 +1,19 @@
 package bitmex.entities;
 
 public class LiquidationData {
-    private String orderID;
-    private String symbol;
-    private String side;
-    private Float price;
-    private Long leavesQty;
+    private final String orderID;
+    private final String symbol;
+    private final String side;
+    private final Float price;
+    private final Long leavesQty;
 
-    public LiquidationData() { }
+    public LiquidationData(String orderID, String symbol, String side, Float price, Long leavesQty) {
+        this.orderID = orderID;
+        this.symbol = symbol;
+        this.side = side;
+        this.price = price;
+        this.leavesQty = leavesQty;
+    }
 
     public String getOrderID() {
         return orderID;
