@@ -206,7 +206,7 @@ public class WsImp implements Ws {
             return;
         JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
         if (obj.has("subscribe")) {
-            LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
+            LOGGER.fine("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
             LOGGER.warning(obj.get("error").getAsString());
             // Rate limited
@@ -548,9 +548,15 @@ public class WsImp implements Ws {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        LOGGER.info("Waiting for data.");
-        while( this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") == null ) { };
-        LOGGER.info("Data received.");
+        LOGGER.fine("Waiting for data.");
+        while( this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") == null ) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                // Do nothing
+            }
+        }
+        LOGGER.fine("Data received.");
     }
 
     /**
