@@ -1,4 +1,4 @@
-package bitmex.utils;
+package utils;
 
 public class BinarySearch {
     /**

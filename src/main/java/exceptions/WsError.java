@@ -1,4 +1,4 @@
-package bitmex.exceptions;
+package exceptions;
 
 public class WsError extends Exception{
 

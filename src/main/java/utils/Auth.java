@@ -1,4 +1,4 @@
-package bitmex.utils;
+package utils;
 
 import bitmex.rest.Rest;
 import org.apache.commons.codec.binary.Hex;

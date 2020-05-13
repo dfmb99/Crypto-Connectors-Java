@@ -1,9 +1,10 @@
 package bitmex.ws;
 
 import bitmex.rest.Rest;
-import bitmex.utils.Auth;
-import bitmex.utils.BinarySearch;
+import utils.Auth;
+import utils.BinarySearch;
 import com.google.gson.*;
+import utils.TimeStamp;
 
 import javax.websocket.*;
 import java.net.URI;
@@ -258,9 +259,28 @@ public class WsImp implements Ws {
         if (action.equals("update") || action.equals("insert")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
+            // checks latency on the update
+            check_latency(data.get("timestamp").getAsString());
             for (String key : data.keySet()) {
                 instrumentData.addProperty(key, data.get(key).getAsString());
             }
+        }
+    }
+
+    /**
+     * Checks latency on a websocket update
+     * @param timestamp
+     */
+    private void check_latency(String timestamp) {
+        long updateTime = TimeStamp.getTimestamp(timestamp);
+        long latency = System.currentTimeMillis() - updateTime;
+        if( latency > Ws.MAX_LATENCY) {
+            if (!this.heartbeatThread.isInterrupted())
+                this.heartbeatThread.interrupt();
+            this.heartbeatThread = null;
+            LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+            this.userSession = null;
+            this.connect();
         }
     }
 
@@ -455,13 +475,7 @@ public class WsImp implements Ws {
         }
     }
 
-    /**
-     * Gets size of level2 orderBook row with price == 'price'
-     *
-     * @param price - price of row to query
-     * @return size - size of orderBook row if data is available
-     * -1 otherwise
-     */
+    @Override
     public long getL2Size(float price) {
         if (this.data.get("orderBookL2") == null)
             return -1L;
@@ -474,66 +488,42 @@ public class WsImp implements Ws {
         return orderbookData.get(index).getAsJsonObject().get("size").getAsLong();
     }
 
-    /**
-     * Returns open liquidations on
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_open_liquidation() {
         return this.data.get("liquidations");
     }
 
-    /**
-     * Returns instrument data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_instrument() {
         return this.data.get("instrument");
     }
 
-    /**
-     * Returns tradeBin1m data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_trabeBin1m() {
         return this.data.get("tradeBin1m");
     }
 
-    /**
-     * Return orderBookL2 data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_orderBookL2() {
         return this.data.get("orderBookL2");
     }
 
-    /**
-     * Return margin data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_margin() {
         return this.data.get("margin");
     }
 
-    /**
-     * Returns execution data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_execution() {
         return this.data.get("execution");
     }
 
-    /**
-     * Returns position data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_position() {
         return this.data.get("position");
     }
 
-    /**
-     * Returns order data
-     * @return JsonArray data
-     */
+    @Override
     public JsonArray get_openOrders(String orderIDPrefix) {
         JsonArray ret = new JsonArray();
         JsonArray openOrders = this.data.get("order");

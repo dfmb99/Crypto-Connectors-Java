@@ -1,5 +1,7 @@
 package bitmex.ws;
 
+import com.google.gson.JsonArray;
+
 import javax.websocket.ClientEndpoint;
 
 @ClientEndpoint
@@ -12,4 +14,61 @@ public interface Ws {
     int TRADE_BIN_MAX_LEN = 200;
     int EXEC_MAX_LEN = 10;
     int RETRY_PERIOD = 3000;
+    int MAX_LATENCY = 15000;
+
+    /**
+     * Gets size of level2 orderBook row with price == 'price'
+     *
+     * @param price - price of row to query
+     * @return size - size of orderBook row if data is available
+     * -1 otherwise
+     */
+    long getL2Size(float price);
+
+    /**
+     * Returns open liquidations on
+     * @return JsonArray data
+     */
+    JsonArray get_open_liquidation();
+
+    /**
+     * Returns instrument data
+     * @return JsonArray data
+     */
+    JsonArray get_instrument();
+
+    /**
+     * Returns tradeBin1m data
+     * @return JsonArray data
+     */
+    JsonArray get_trabeBin1m();
+
+    /**
+     * Return orderBookL2 data
+     * @return JsonArray data
+     */
+    JsonArray get_orderBookL2();
+    /**
+     * Return margin data
+     * @return JsonArray data
+     */
+    JsonArray get_margin();
+
+    /**
+     * Returns execution data
+     * @return JsonArray data
+     */
+    JsonArray get_execution();
+
+    /**
+     * Returns position data
+     * @return JsonArray data
+     */
+    JsonArray get_position();
+
+    /**
+     * Returns order data
+     * @return JsonArray data
+     */
+    JsonArray get_openOrders(String orderIDPrefix);
 }

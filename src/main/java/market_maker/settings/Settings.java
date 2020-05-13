@@ -1,4 +1,4 @@
-package bitmex.settings;
+package market_maker.settings;
 
 public class Settings {
     public Settings() {}

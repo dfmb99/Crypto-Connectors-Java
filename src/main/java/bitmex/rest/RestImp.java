@@ -1,8 +1,8 @@
 package bitmex.rest;
 
-import bitmex.exceptions.ApiConnectionException;
-import bitmex.exceptions.ApiErrorException;
-import bitmex.utils.Auth;
+import exceptions.ApiConnectionException;
+import exceptions.ApiErrorException;
+import utils.Auth;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -25,6 +25,8 @@ import java.util.logging.Logger;
 public class RestImp implements Rest {
 
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
+
+
     private final Client client;
     private final String url;
     private final String apiKey;

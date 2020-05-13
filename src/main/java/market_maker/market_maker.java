@@ -1,7 +1,7 @@
-package bitmex;
+package market_maker;
 
 import bitmex.rest.RestImp;
-import bitmex.settings.Settings;
+import market_maker.settings.Settings;
 import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;

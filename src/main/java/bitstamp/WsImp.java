@@ -13,6 +13,7 @@ public class WsImp {
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static String URL = "wss://ws.bitstamp.net";
     private final static int RETRY_PERIOD = 3000;
+    private final static int MAX_LATENCY = 15000;
 
     private WebSocketContainer container;
     private Session userSession;
@@ -97,7 +98,21 @@ public class WsImp {
      * @param data received
      */
     private void update_ticker(JsonObject data) {
+        check_latency(data.get("microtimestamp").getAsLong() / 1000);
         lastPrice = data.get("price_str").getAsFloat();
+    }
+
+    /**
+     * Checks latency on a websocket update
+     * @param timestamp - epoch stamp in ms
+     */
+    private void check_latency(long timestamp) {
+        long latency = System.currentTimeMillis() - timestamp;
+        if( latency > MAX_LATENCY) {
+            LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+            this.userSession = null;
+            this.connect();
+        }
     }
 
     /**

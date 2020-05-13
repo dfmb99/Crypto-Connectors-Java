@@ -1,6 +1,5 @@
-package bitmex;
+package market_maker;
 
-import bittrex.WsImp;
 import com.google.gson.Gson;
 
 import java.io.IOException;
@@ -20,14 +19,14 @@ public class Main {
         //swGvEbz7gQG1uAFRMheNby3D
         //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
 
-        /*WsImp ws = null;
+        /**WsImp ws = null;
         ws = new WsImp(true, "XGN7I-BhV7giM-ihQwo9Rw3F",
                 "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
                 "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"");
-        */
-        bittrex.WsImp ws = new WsImp("USD-BTC");
+*/
+        bittrex.WsImp ws = new bittrex.WsImp("USD-BTC");
         while(true) {
-            System.out.println(ws.get_last_price());
+            //System.out.println(ws.get_last_price());
         }
     }
 }
