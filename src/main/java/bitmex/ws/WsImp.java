@@ -273,6 +273,7 @@ public class WsImp implements Ws {
      */
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
+        System.out.println(updateTime);
         long latency = System.currentTimeMillis() - updateTime;
         if( latency > Ws.MAX_LATENCY) {
             if (!this.heartbeatThread.isInterrupted())

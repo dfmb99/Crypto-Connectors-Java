@@ -1,8 +1,8 @@
-package coinbase;
+package gemini;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import utils.TimeStamp;
 
 import javax.websocket.*;
 import java.net.URI;
@@ -24,7 +24,7 @@ class HeartbeatThread extends Thread {
     public void run() {
         long startTime = System.currentTimeMillis();
         while (!Thread.interrupted()) {
-            if (System.currentTimeMillis() - startTime > 5000) {
+            if (System.currentTimeMillis() - startTime > 10000) {
                 LOGGER.fine("Heartbeat thread reconnecting.");
                 this.ws.connect();
                 this.interrupt();
@@ -36,8 +36,9 @@ class HeartbeatThread extends Thread {
 @ClientEndpoint
 public class WsImp {
 
-    private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
-    private final static String URL = "wss://ws-feed.pro.coinbase.com";
+    private final static Logger LOGGER = Logger.getLogger(coinbase.WsImp.class.getName());
+    private final static String URL = "wss://api.gemini.com/v1/marketdata/";
+    private final static String QUERY = "?heartbeat=true&trades=true";
     private static final int MAX_LATENCY = 15000;
     private final static int RETRY_PERIOD = 3000;
 
@@ -51,7 +52,7 @@ public class WsImp {
     private long seqNum;
 
     /**
-     * Coinbase web socket client implementation for one symbol
+     * Gemini web socket client implementation for one symbol
      */
     public WsImp(String symbol) {
         this.container = ContainerProvider.getWebSocketContainer();
@@ -64,11 +65,11 @@ public class WsImp {
     }
 
     /**
-     * Connects to Coinbase web socket server
+     * Connects to Gemini web socket server
      */
     void connect() {
         try {
-            this.container.connectToServer(this, URI.create(URL));
+            this.container.connectToServer(this, URI.create(URL + this.symbol + QUERY));
         } catch (Exception e) {
             LOGGER.warning("Failed to connect to web socket server.");
             try {
@@ -87,10 +88,9 @@ public class WsImp {
      */
     @OnOpen
     public void onOpen(Session userSession) {
-        LOGGER.info(String.format("Connected to: %s", URL));
+        LOGGER.info(String.format("Connected to: %s", URL + this.symbol + QUERY));
         this.userSession = userSession;
         this.heartbeatThread = new HeartbeatThread(this);
-        this.sendMessage(String.format("{\"type\": \"subscribe\",\"product_ids\": [\"%s\"],\"channels\": [\"ticker\",\"heartbeat\"]}", this.symbol));
     }
 
     /**
@@ -105,7 +105,6 @@ public class WsImp {
         this.heartbeatThread = null;
         LOGGER.warning(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
         this.userSession = null;
-        this.seqNum = -1L;
         this.connect();
     }
 
@@ -122,8 +121,20 @@ public class WsImp {
         JsonObject response = JsonParser.parseString(message).getAsJsonObject();
         String type = response.get("type").getAsString();
 
-        if (type.equalsIgnoreCase("ticker"))
-            new Thread(() -> update_ticker(response)).start();
+        if (type.equalsIgnoreCase("update") && response.get("events").getAsJsonArray().size() > 0) {
+            // checks latency on update
+            check_latency(response.get("timestampms").getAsLong());
+            //checks seqNum
+            long newSeqNum = response.get("socket_sequence").getAsLong();
+            // if this update is more recent than the one we have in memory
+            if (newSeqNum > this.seqNum) {
+                this.seqNum = newSeqNum;
+                JsonArray data = response.get("events").getAsJsonArray();
+                JsonObject lastOfArr = data.get(data.size() - 1).getAsJsonObject();
+                if (lastOfArr.get("type").getAsString().equals("trade"))
+                    new Thread(() -> update_ticker(lastOfArr)).start();
+            }
+        }
     }
 
 
@@ -133,13 +144,7 @@ public class WsImp {
      * @param data received
      */
     private void update_ticker(JsonObject data) {
-        check_latency(data.get("time").getAsString());
-        long newSeqNum = data.get("sequence").getAsLong();
-        // if this update is more recent than the one we have in memory
-        if( newSeqNum > this.seqNum) {
-            this.seqNum = newSeqNum;
-            this.lastPrice = data.get("price").getAsFloat();
-        }
+        this.lastPrice = data.get("price").getAsFloat();
     }
 
     /**
@@ -166,12 +171,12 @@ public class WsImp {
 
     /**
      * Checks latency on a websocket update
-     * @param timestamp
+     *
+     * @param updateTime
      */
-    private void check_latency(String timestamp) {
-        long updateTime = TimeStamp.getTimestamp(timestamp);
+    private void check_latency(long updateTime) {
         long latency = System.currentTimeMillis() - updateTime;
-        if( latency > MAX_LATENCY) {
+        if (latency > MAX_LATENCY) {
             if (!this.heartbeatThread.isInterrupted())
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;

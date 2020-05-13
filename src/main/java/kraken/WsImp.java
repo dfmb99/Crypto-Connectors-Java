@@ -1,8 +1,8 @@
-package coinbase;
+package kraken;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import utils.TimeStamp;
 
 import javax.websocket.*;
 import java.net.URI;
@@ -23,8 +23,13 @@ class HeartbeatThread extends Thread {
     @Override
     public void run() {
         long startTime = System.currentTimeMillis();
+        boolean sentPing = false;
         while (!Thread.interrupted()) {
-            if (System.currentTimeMillis() - startTime > 5000) {
+            if (System.currentTimeMillis() - startTime > 5000 && !sentPing) {
+                sentPing = true;
+                LOGGER.fine("Heartbeat thread sending ping.");
+                this.ws.sendMessage("{\"event\": \"ping\"}");
+            } else if (System.currentTimeMillis() - startTime > 10000) {
                 LOGGER.fine("Heartbeat thread reconnecting.");
                 this.ws.connect();
                 this.interrupt();
@@ -37,8 +42,7 @@ class HeartbeatThread extends Thread {
 public class WsImp {
 
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
-    private final static String URL = "wss://ws-feed.pro.coinbase.com";
-    private static final int MAX_LATENCY = 15000;
+    private final static String URL = "wss://ws.kraken.com";
     private final static int RETRY_PERIOD = 3000;
 
     private WebSocketContainer container;
@@ -47,24 +51,24 @@ public class WsImp {
     private String symbol;
     // last price of ticker
     private float lastPrice;
-    // last sequence number of ticker
-    private long seqNum;
+    // subscription channelID
+    private int tickerID;
 
     /**
-     * Coinbase web socket client implementation for one symbol
+     * Kraken web socket client implementation for one symbol
      */
     public WsImp(String symbol) {
         this.container = ContainerProvider.getWebSocketContainer();
         this.heartbeatThread = null;
         this.lastPrice = -1f;
-        this.seqNum = -1L;
+        this.tickerID = -1;
         this.symbol = symbol;
         this.connect();
         this.waitForData();
     }
 
     /**
-     * Connects to Coinbase web socket server
+     * Connects to Kraken web socket server
      */
     void connect() {
         try {
@@ -90,7 +94,7 @@ public class WsImp {
         LOGGER.info(String.format("Connected to: %s", URL));
         this.userSession = userSession;
         this.heartbeatThread = new HeartbeatThread(this);
-        this.sendMessage(String.format("{\"type\": \"subscribe\",\"product_ids\": [\"%s\"],\"channels\": [\"ticker\",\"heartbeat\"]}", this.symbol));
+        this.sendMessage(String.format("{\"event\": \"subscribe\",\"pair\": [\"%s\"],\"subscription\": {\"name\": \"ticker\"}}", this.symbol));
     }
 
     /**
@@ -105,7 +109,6 @@ public class WsImp {
         this.heartbeatThread = null;
         LOGGER.warning(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
         this.userSession = null;
-        this.seqNum = -1L;
         this.connect();
     }
 
@@ -116,30 +119,34 @@ public class WsImp {
      */
     @OnMessage
     public void onMessage(String message) {
+        System.out.println(message);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = new HeartbeatThread(this);
-        JsonObject response = JsonParser.parseString(message).getAsJsonObject();
-        String type = response.get("type").getAsString();
 
-        if (type.equalsIgnoreCase("ticker"))
-            new Thread(() -> update_ticker(response)).start();
+        // if message starts with "{" we can parse it to json otherwise we received an array of data
+        if(message.startsWith("{")) {
+            JsonObject response = JsonParser.parseString(message).getAsJsonObject();
+            if(response.has("channelName") && response.has("status") && response.get("channelName").getAsString().equalsIgnoreCase("ticker") && response.get("status").getAsString().equalsIgnoreCase("subscribed"))
+                this.tickerID = response.get("channelID").getAsInt();
+            else if(response.has("event") && response.get("event").getAsString().equalsIgnoreCase("error"))
+                LOGGER.warning(response.get("errorMessage").getAsString());
+
+        } else {
+            JsonArray dataArr = JsonParser.parseString(message).getAsJsonArray();
+            if(dataArr.get(0).getAsInt() == this.tickerID)
+                new Thread(() -> update_ticker(dataArr)).start();
+        }
     }
 
 
     /**
-     * Updates memory data when receives "trade" event
+     * Updates memory data when receives "ticker" event
      *
      * @param data received
      */
-    private void update_ticker(JsonObject data) {
-        check_latency(data.get("time").getAsString());
-        long newSeqNum = data.get("sequence").getAsLong();
-        // if this update is more recent than the one we have in memory
-        if( newSeqNum > this.seqNum) {
-            this.seqNum = newSeqNum;
-            this.lastPrice = data.get("price").getAsFloat();
-        }
+    private void update_ticker(JsonArray data) {
+        this.lastPrice = Float.parseFloat(data.get(1).getAsJsonObject().get("c").getAsJsonArray().get(0).getAsString());
     }
 
     /**
@@ -162,23 +169,6 @@ public class WsImp {
             }
         }
         LOGGER.fine("Data received.");
-    }
-
-    /**
-     * Checks latency on a websocket update
-     * @param timestamp
-     */
-    private void check_latency(String timestamp) {
-        long updateTime = TimeStamp.getTimestamp(timestamp);
-        long latency = System.currentTimeMillis() - updateTime;
-        if( latency > MAX_LATENCY) {
-            if (!this.heartbeatThread.isInterrupted())
-                this.heartbeatThread.interrupt();
-            this.heartbeatThread = null;
-            LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            this.userSession = null;
-            this.connect();
-        }
     }
 
     /**

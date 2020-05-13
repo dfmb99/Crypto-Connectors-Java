@@ -24,9 +24,9 @@ public class Main {
                 "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
                 "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"");
 */
-        bittrex.WsImp ws = new bittrex.WsImp("USD-BTC");
+       kraken.WsImp ws = new kraken.WsImp("BTC/USD");
         while(true) {
-            //System.out.println(ws.get_last_price());
+            System.out.println(ws.get_last_price());
         }
     }
 }
