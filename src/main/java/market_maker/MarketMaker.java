@@ -1,94 +1,117 @@
 package market_maker;
 
 import bitmex.rest.RestImp;
-import market_maker.settings.Settings;
 import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.io.IOException;
+import java.nio.file.*;
+import java.util.Arrays;
 import java.util.logging.Logger;
 
 class ExchangeInterface {
     private final static Logger LOGGER = Logger.getLogger(ExchangeInterface.class.getName());
-    private RestImp rest;
-    private WsImp ws;
+    private RestImp mexRest;
+    private WsImp mexWs;
     private String orderIDPrefix;
     private String symbol;
+    private Settings settings;
     private boolean postOnly;
 
     public ExchangeInterface(Settings settings) {
-        this.rest = new RestImp(true, settings.API_KEY, settings.API_SECRET, "mmbitmex");
-        this.ws = new WsImp(true, settings.API_KEY, settings.API_SECRET, "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
-                "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\", \"margin:*\"");
+        this.settings = settings;
         this.orderIDPrefix = "mmbitmex";
+        this.mexRest = new RestImp(true, settings.API_KEY, settings.API_SECRET, orderIDPrefix);
+        this.mexWs = new WsImp(true, settings.API_KEY, settings.API_SECRET);
         this.symbol = "";
 
     }
 
+    public void get_instrument_composite_Index() {
+        // underlying symbol ( eg. 'XBT=' )
+        String compIndex = mexRest.get_instrument(symbol).get(0).getAsJsonObject().get("underlyingSymbol").getAsString();
+        compIndex = ".B".concat(compIndex.split("=")[0]);
+
+        JsonArray compIndRes = mexRest.get_instrument_compositeIndex(compIndex);
+        for(JsonElement elem: compIndRes) {
+            String exchangeRef = elem.getAsJsonObject().get("reference").getAsString();
+
+            Arrays.stream(settings.SPOT_EXCHANGES_REF).anyMatch("s"::equals);
+        }
+    }
+
     /**
      * Returns last price
+     *
      * @return last price
      */
     public float get_last_price() {
-       return this.ws.get_instrument().get(0).getAsJsonObject().get("lastPrice").getAsFloat();
+        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("lastPrice").getAsFloat();
     }
 
     /**
      * Returns bid price
+     *
      * @return bid price
      */
     public float get_bid_price() {
-        return this.ws.get_instrument().get(0).getAsJsonObject().get("bidPrice").getAsFloat();
+        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("bidPrice").getAsFloat();
     }
 
     /**
      * Returns ask price
+     *
      * @return ask price
      */
     public float get_ask_price() {
-        return this.ws.get_instrument().get(0).getAsJsonObject().get("askPrice").getAsFloat();
+        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("askPrice").getAsFloat();
     }
 
     /**
      * Returns mid price
+     *
      * @return mid price
      */
     public float get_mid_price() {
-        return (get_ask_price() + get_bid_price()) / 2 ;
+        return (get_ask_price() + get_bid_price()) / 2;
     }
 
     /**
      * Returns position size
+     *
      * @return position size
      */
     public long getPosition() {
-        return this.ws.get_position().get(0).getAsJsonObject().get("currentQty").getAsLong();
+        return this.mexWs.get_position().get(0).getAsJsonObject().get("currentQty").getAsLong();
     }
 
     /**
      * Get open buy orders
+     *
      * @return open buy orders
      */
     public JsonArray get_open_buy_orders() {
         JsonArray ret = new JsonArray();
-        JsonArray openOrders = this.ws.get_openOrders(this.orderIDPrefix);
-        for(JsonElement elem: openOrders) {
-           if( elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
-               ret.add(elem);
+        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        for (JsonElement elem : openOrders) {
+            if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
+                ret.add(elem);
         }
         return ret;
     }
 
     /**
      * Get open sell orders
+     *
      * @return open sell orders
      */
     public JsonArray get_open_sell_orders() {
         JsonArray ret = new JsonArray();
-        JsonArray openOrders = this.ws.get_openOrders(this.orderIDPrefix);
-        for(JsonElement elem: openOrders) {
-            if( elem.getAsJsonObject().get("side").getAsString().equals("Sell"))
+        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        for (JsonElement elem : openOrders) {
+            if (elem.getAsJsonObject().get("side").getAsString().equals("Sell"))
                 ret.add(elem);
         }
         return ret;
@@ -96,22 +119,24 @@ class ExchangeInterface {
 
     /**
      * Get margin used (ratio between available margin and margin balance)
+     *
      * @return margin used
      */
     public float get_margin_used() {
-        JsonObject margin = this.ws.get_margin().get(0).getAsJsonObject();
+        JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
         return (float) margin.get("availableMargin").getAsLong() / margin.get("marginBalance").getAsLong();
     }
 
     /**
      * Returns highest open buy order
+     *
      * @return order
      */
     public JsonObject get_highest_buy() {
         JsonObject highestBuy = new JsonObject();
         JsonArray orders = this.get_open_buy_orders();
-        for(JsonElement currOrd: orders) {
-            if(highestBuy.keySet().size() < 1  || currOrd.getAsJsonObject().get("price").getAsFloat() > highestBuy.get("price").getAsFloat())
+        for (JsonElement currOrd : orders) {
+            if (highestBuy.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() > highestBuy.get("price").getAsFloat())
                 highestBuy = currOrd.getAsJsonObject();
         }
         return highestBuy;
@@ -119,13 +144,14 @@ class ExchangeInterface {
 
     /**
      * Returns lowest open sell order
+     *
      * @return order
      */
     public JsonObject get_lowest_sell() {
         JsonObject lowestSell = new JsonObject();
         JsonArray orders = this.get_open_sell_orders();
-        for(JsonElement currOrd: orders) {
-            if(lowestSell.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() > lowestSell.get("price").getAsFloat())
+        for (JsonElement currOrd : orders) {
+            if (lowestSell.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() > lowestSell.get("price").getAsFloat())
                 lowestSell = currOrd.getAsJsonObject();
         }
         return lowestSell;
@@ -137,8 +163,9 @@ class ExchangeInterface {
 
     /**
      * Prepares a limit order
+     *
      * @param orderQty - orderQty, if negative sell order
-     * @param price - price to place the order
+     * @param price    - price to place the order
      * @return
      */
     public JsonObject prepare_limit_order(long orderQty, float price) {
@@ -156,6 +183,7 @@ class ExchangeInterface {
 
     /**
      * Prepares a market order
+     *
      * @param orderQty - orderQty, if negative sell order
      * @return order - order built
      */
@@ -170,22 +198,24 @@ class ExchangeInterface {
 
     /**
      * Places an order
+     *
      * @param order - order to be placed
      * @return JsonObject - response of request
      */
     public JsonObject place_order(JsonObject order) {
-        return this.rest.post_order(order);
+        return this.mexRest.post_order(order);
     }
 
     /**
      * Places multiple orders as bulk
+     *
      * @param orders - orders to be placed
      * @return JsonObject - response of request
      */
     public JsonArray place_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
         params.addProperty("orders", String.valueOf(orders));
-        return this.rest.post_order_bulk(params);
+        return this.mexRest.post_order_bulk(params);
     }
 }
 
@@ -195,11 +225,38 @@ class OrderManager {
     }
 }
 
-public class market_maker {
+public class MarketMaker {
+
+    private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
 
     public static void main(String[] args) throws InterruptedException {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
-    ExchangeInterface e = new ExchangeInterface(new Settings());
-    System.out.println(e.get_margin_used());
+        ExchangeInterface e = new ExchangeInterface(new Settings());
+        System.out.println(e.get_margin_used());
+    }
+
+    private void fileWatcher() throws IOException, InterruptedException {
+        WatchService watchService
+                = FileSystems.getDefault().newWatchService();
+
+        Path path = Paths.get(System.getProperty("user.dir") + "\\src\\main\\java\\");
+
+        path.register(
+                watchService,
+                StandardWatchEventKinds.ENTRY_CREATE,
+                StandardWatchEventKinds.ENTRY_DELETE,
+                StandardWatchEventKinds.ENTRY_MODIFY);
+
+        WatchKey key;
+        while ((key = watchService.take()) != null) {
+            // prevents multiple same events
+            Thread.sleep(3000);
+            for (WatchEvent<?> event : key.pollEvents()) {
+                String fileChanged = event.context().toString();
+                if (!fileChanged.equals("logs"))
+                    LOGGER.warning("Event kind:" + event.kind() + ". File affected: " + fileChanged);
+            }
+            key.reset();
+        }
     }
 }

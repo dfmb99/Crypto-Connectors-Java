@@ -96,9 +96,8 @@ public class WsImp implements Ws {
      * @param testnet - true if we want to connect to testnet, false otherwise
      * @param apiKey - apiKey
      * @param apiSecret - apiSecret
-     * @param subscriptions - string to send to server to subscribe (Eg: 'instrument:XBTUSD,margin:*,orderBookL2:XBTUSD' ), subscriptions should have always same symbol otherwise conflicts can happen, create new object if subscriptions have different symbols
      */
-    public WsImp(boolean testnet, String apiKey, String apiSecret, String subscriptions) {
+    public WsImp(boolean testnet, String apiKey, String apiSecret) {
         this.container = ContainerProvider.getWebSocketContainer();
         if (testnet)
             this.url = Ws.WS_TESTNET;
@@ -111,7 +110,8 @@ public class WsImp implements Ws {
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
         this.g = new Gson();
-        this.setSubscriptions(subscriptions);
+        this.setSubscriptions("\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
+                "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\", \"margin:*\"");
         this.connect();
         this.waitForData();
     }

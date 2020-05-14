@@ -29,12 +29,12 @@ public class WsImp {
     private void connect() {
         try {
             bittrexExchange = new BittrexExchange();
+            LOGGER.info("Connected to bittrex websocket.");
 
             bittrexExchange.onUpdateExchangeState(exchangeState -> {
                 Fill fill = exchangeState.getFills()[0];
                 check_latency(fill.getTimeStamp().toEpochSecond() * 1000);
                 this.lastPrice = (float) fill.getPrice();
-                System.out.println(lastPrice);
             });
 
             bittrexExchange.connectToWebSocket(() -> {

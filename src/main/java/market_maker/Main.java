@@ -1,11 +1,17 @@
 package market_maker;
 
 import com.google.gson.Gson;
+import utils.SpotPricesTracker;
 
 import java.io.IOException;
 import java.text.ParseException;
+import java.util.Arrays;
+import java.util.logging.Logger;
+
 
 public class Main {
+
+    private final static Logger LOGGER = Logger.getLogger(Main.class.getName());
 
     public static void main(String[] args) throws InterruptedException, ParseException, IOException {
         Gson g = new Gson();
@@ -20,15 +26,23 @@ public class Main {
         //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
 
         /**WsImp ws = null;
-        ws = new WsImp(true, "XGN7I-BhV7giM-ihQwo9Rw3F",
-                "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
-                "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"");
-*/
-       kraken.WsImp ws = new kraken.WsImp("BTC/USD");
-        while(true) {
-            System.out.println(ws.get_last_price());
+         ws = new WsImp(true, "XGN7I-BhV7giM-ihQwo9Rw3F",
+         "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
+         "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"");
+         */
+        String[] params = {"KRAK", "ITBT", "BTRX", "GMNI"};
+        SpotPricesTracker s = new SpotPricesTracker("XBTUSD");
+        s.addExchanges(params);
+        while (true) {
+            long now = System.currentTimeMillis();
+            System.out.println(Arrays.toString(s.get_last_price()));
+            System.out.println(System.currentTimeMillis() - now);
+
         }
+
     }
+
+
 }
 
 

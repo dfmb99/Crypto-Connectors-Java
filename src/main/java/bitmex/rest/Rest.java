@@ -38,11 +38,20 @@ public interface Rest {
     /**
      * Get instruments
      * Calls the GET/instrument method on server
-     * @param data - data sent to server as parameters
+     * @param symbol - symbol to query
      * @return server response in JSONArray
      *         null otherwise
      */
-    JsonArray get_instrument(JsonObject data);
+    JsonArray get_instrument(String symbol);
+
+    /**
+     * Get instruments
+     * Calls the GET /instrument/compositeIndex method on server
+     * @param compIndex - composite index to query
+     * @return server response in JSONArray
+     *         null otherwise
+     */
+    JsonArray get_instrument_compositeIndex(String compIndex);
 
     /**
      * Get your orders

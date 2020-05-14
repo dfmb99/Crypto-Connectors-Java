@@ -245,9 +245,25 @@ public class RestImp implements Rest {
     }
 
     @Override
-    public JsonArray get_instrument(JsonObject data) {
+    public JsonArray get_instrument(String symbol) {
         try {
-            return JsonParser.parseString(api_call("GET", "/instrument", data)).getAsJsonArray();
+            JsonObject params = new JsonObject();
+            params.addProperty("symbol", symbol);
+            return JsonParser.parseString(api_call("GET", "/instrument", params)).getAsJsonArray();
+        } catch (ApiErrorException e) {
+            LOGGER.warning(e.getMessage());
+            return null;
+        }
+    }
+
+    @Override
+    public JsonArray get_instrument_compositeIndex(String compIndex) {
+        try {
+            JsonObject params = new JsonObject();
+            params.addProperty("symbol", compIndex);
+            params.addProperty("count", 50);
+            params.addProperty("reverse", true);
+            return JsonParser.parseString(api_call("GET", "/instrument", params)).getAsJsonArray();
         } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;

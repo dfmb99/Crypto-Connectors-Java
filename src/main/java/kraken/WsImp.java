@@ -119,7 +119,6 @@ public class WsImp {
      */
     @OnMessage
     public void onMessage(String message) {
-        System.out.println(message);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = new HeartbeatThread(this);
