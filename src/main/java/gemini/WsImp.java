@@ -193,6 +193,11 @@ public class WsImp {
      */
     @OnError
     public void onError(Throwable throwable) {
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            // Do nothing
+        }
         LOGGER.warning(throwable.toString());
     }
 

@@ -6,17 +6,23 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import utils.SpotPricesTracker;
+import utils.TimeStamp;
 
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Logger;
 
 class ExchangeInterface {
     private final static Logger LOGGER = Logger.getLogger(ExchangeInterface.class.getName());
     // Funding interval of perpetual swaps on miliseconds
     private final static long FUNDING_INTERVAL = 28800000;
+    // days per anum
+    private final static int DAYS_ANNUM = 365;
+    // 1 day converted into milliseconds
+    private final static long DAY_MS = 86400000L;
 
     private RestImp mexRest;
     private WsImp mexWs;
@@ -24,50 +30,59 @@ class ExchangeInterface {
     private String symbol;
     private Settings settings;
     // class that deals with ticker data on other exchanges
-    private SpotPricesTracker spotPrices;
-    // array that stores exchanges names that are used as index in our symbol
-    private String[] refs;
+    protected SpotPricesTracker spotPrices;
     // array that stores exchanges weights that are used as index in our symbol
-    private Float[] weights;
+    protected List<Float> weights;
     // Underlying symbol of contract
     private String underlyingSymbol;
     // if perpetual contract null, otherwise date of expiration
     private String expiry;
+    // Thread that checks updates from other exchanges too see if data is valid and updates weights accordingly
+    private IndexCheckThread indexThread;
+    // timestamp on where indexes weights are updated
+    protected long nextIndexUpdate;
 
     public ExchangeInterface(Settings settings) {
         this.settings = settings;
         this.orderIDPrefix = "mmbitmex";
         this.symbol = settings.SYMBOL;
-        this.mexRest = new RestImp(true, settings.API_KEY, settings.API_SECRET, orderIDPrefix);
-        this.mexWs = new WsImp(true, settings.API_KEY, settings.API_SECRET, symbol);
+        this.mexRest = new RestImp(settings.TESTNET, settings.API_KEY, settings.API_SECRET, orderIDPrefix);
+        this.mexWs = new WsImp(settings.TESTNET, settings.API_KEY, settings.API_SECRET, symbol);
         this.spotPrices = new SpotPricesTracker(symbol);
+        this.indexThread = null;
 
         // Initial data
-
         JsonObject instrument = mexWs.get_instrument().get(0).getAsJsonObject();
-        this.expiry = instrument.get("expiry") == null ? null : instrument.get("expiry").getAsString();
+        this.expiry = instrument.get("expiry").isJsonNull() ? null : instrument.get("expiry").getAsString();
         this.underlyingSymbol = instrument.get("underlyingSymbol").getAsString();
         // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
-        this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]).replaceAll("\"", "");
+        this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
         this.get_instrument_composite_index();
+
     }
 
-    public void get_instrument_composite_index() {
+    protected void get_instrument_composite_index() {
+        // Interrupts index thread if thread exists
+        if(this.indexThread != null && !this.indexThread.isInterrupted())
+            this.indexThread.interrupt();
+
+        this.nextIndexUpdate = TimeStamp.getTimestamp(this.mexRest.get_instrument("XBT:quarterly").get(0).getAsJsonObject().get("expiry").getAsString());
         // request to know composition of index on the symbol we are quoting
         JsonArray compIndRes = mexRest.get_instrument_compositeIndex(underlyingSymbol);
         List<String> exchangeRefs = new ArrayList<>();
-        List<Float> exchangeWeights = new ArrayList<>();
+        this.weights = new CopyOnWriteArrayList<>();
         for(JsonElement elem: compIndRes) {
             JsonObject obj = elem.getAsJsonObject();
             String reference = obj.get("reference").getAsString();
             if(reference.equalsIgnoreCase("BMI")) break;
             float weight = obj.get("weight").getAsFloat();
             exchangeRefs.add(reference);
-            exchangeWeights.add(weight);
+            this.weights.add(weight);
         }
-        this.refs = exchangeRefs.toArray(new String[exchangeRefs.size()]);
-        this.weights = exchangeWeights.toArray(new Float[exchangeWeights.size()]);
-        spotPrices.addExchanges(this.refs);
+
+        spotPrices.addExchanges(exchangeRefs.toArray(new String[exchangeRefs.size()]));
+        // creates new indexThread
+        this.indexThread = new IndexCheckThread(this);
     }
 
     /**
@@ -104,6 +119,37 @@ class ExchangeInterface {
      */
     public float get_mid_price() {
         return (get_ask_price() + get_bid_price()) / 2;
+    }
+
+    public float get_mark_price() {
+        /**(For perpetual swaps)
+         * Funding Basis = Funding Rate * (Time Until Funding / Funding Interval)
+         * Fair Price    = Index Price * (1 + Funding Basis)
+         *
+         * (For futures contracts)
+         * % Fair Basis = (Impact Mid Price / Index Price - 1) / (Time To Expiry / 365)
+         * Fair Value   = Index Price * % Fair Basis * (Time to Expiry / 365)
+         * Fair Price   = Index Price + Fair Value
+         */
+
+        float indexPrice = 0f;
+        float[] lastPrices = this.spotPrices.get_last_price();
+        for(int i = 0; i < lastPrices.length; i++) {
+            indexPrice += lastPrices[i] * (float) this.weights.get(i);
+        }
+
+        JsonObject instrument = this.mexWs.get_instrument().get(0).getAsJsonObject();
+        if( this.expiry == null ) {
+            float fundingRate = instrument.get("fundingRate").getAsFloat();
+            long fundingTimestamp = TimeStamp.getTimestamp(instrument.get("fundingTimestamp").getAsString());
+            float fundingBasis = fundingRate * ( ((float) fundingTimestamp - (float) System.currentTimeMillis()) / (float) FUNDING_INTERVAL);
+            return indexPrice * ( 1.0f + fundingBasis);
+        }else {
+            float fairBasis = instrument.get("fairBasisRate").getAsFloat();
+            long expiryTimestamp = TimeStamp.getTimestamp(this.expiry);
+            float fairValue = indexPrice * fairBasis * ( ((float) expiryTimestamp - (float) System.currentTimeMillis()) / (float) DAY_MS / (float) DAYS_ANNUM);
+            return indexPrice + fairValue;
+        }
     }
 
     /**
@@ -253,12 +299,108 @@ class OrderManager {
     }
 }
 
+/**
+ * Heartbeat thread that checks price feeds from other exchanges
+ */
+class IndexCheckThread extends Thread {
+    private final static Logger LOGGER = Logger.getLogger(IndexCheckThread.class.getName());
+
+    private ExchangeInterface e;
+    // updated prices
+    private float[] currPrices;
+    // original exchange weights
+    private float[] origWeights;
+    // removed exchange weights
+    private float[] remWeights;
+    // updated timestamps
+    private long[] timeStamps;
+    // number of active indexes
+    private int activeIndexes;
+
+    public IndexCheckThread(ExchangeInterface e) {
+        this.e = e;
+        currPrices = e.spotPrices.get_last_price();
+        origWeights = new float[e.weights.size()];
+        remWeights = new float[e.weights.size()];
+        timeStamps = new long[e.weights.size()];
+        long now = System.currentTimeMillis();
+        for(int i = 0; i < origWeights.length; i++) {
+            origWeights[i] = e.weights.get(i);
+            timeStamps[i] = now;
+            remWeights[i] = 0.0f;
+        }
+        activeIndexes = origWeights.length;
+        this.start();
+    }
+
+    @Override
+    public void run() {
+        float[] newData;
+        float remW;
+        float addedWeights;
+        int i;
+        long now;
+        while (!Thread.interrupted()) {
+            remW = 0.0f;
+            now = System.currentTimeMillis();
+            newData = e.spotPrices.get_last_price();
+
+            // Indexes weights get updated after quarterly futures expiry + 5 seconds
+            if(System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
+                this.interrupt();
+                e.get_instrument_composite_index();
+            }
+
+            for(i = 0; i < currPrices.length; i++) {
+                // if data received is different than data we have, update timestamp array
+                if(newData[i] != currPrices[i]) {
+                    timeStamps[i] = now;
+                    if(e.weights.get(i) == 0.0f) {
+                        float v =  origWeights[i] / (float) activeIndexes;
+                        LOGGER.warning(String.format("Invalid exchange updated price, removing from other valid exchanges: %d", v));
+                        for(int j = 0; j < currPrices.length; j++) {
+                            float k = e.weights.get(j);
+                            if( k > 0.0f)
+                                e.weights.set(j, k - v);
+                        }
+                        e.weights.set(i, origWeights[i]);
+                    }
+                }
+                //check if index needs to be removed
+                if(System.currentTimeMillis() - timeStamps[i] > 900000) {
+                    LOGGER.warning(String.format("Removing exchange at index %d due to not receiving price updates for 15 minutes.", i));
+                    activeIndexes--;
+                    //removed weight needs to be distributed by the rest
+                    remW += e.weights.get(i);
+                    // set this weight to 0
+                    e.weights.set(i, 0.0f);
+                }
+            }
+            if(remW > 0.0f) {
+                addedWeights = remW / (float) activeIndexes;
+                LOGGER.warning(String.format("Adding to every other valid exchange: %d", addedWeights));
+                for(i = 0; i < currPrices.length; i++){
+                    float v = e.weights.get(i);
+                    if( v > 0.0f)
+                        e.weights.set(i, v + addedWeights);
+                }
+            }
+            currPrices = newData.clone();
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                //Do nothing
+            }
+        }
+    }
+}
+
 public class MarketMaker {
 
     private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
 
     public static void main(String[] args) throws InterruptedException {
-        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
+        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
         ExchangeInterface e = new ExchangeInterface(new Settings());
     }
 

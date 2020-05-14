@@ -144,7 +144,7 @@ public class WsImp {
      */
     @OnError
     public void onError(Throwable throwable) {
-        LOGGER.warning(throwable.toString());
+        LOGGER.warning(throwable.getLocalizedMessage());
     }
 
     /**

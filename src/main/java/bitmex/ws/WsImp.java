@@ -252,13 +252,15 @@ public class WsImp implements Ws {
      */
     private void update_intrument(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("partial")) {
+        if (action.equals("partial")) {
+            this.data.put("instrument", obj.get("data").getAsJsonArray());
+        } else if (action.equals("update")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             // checks latency on the update
             check_latency(data.get("timestamp").getAsString());
             for (String key : data.keySet()) {
-                instrumentData.addProperty(key, String.valueOf(data.get(key)));
+                instrumentData.addProperty(key, data.get(key).getAsString());
             }
         }
     }
@@ -375,9 +377,10 @@ public class WsImp implements Ws {
      */
     private void update_position(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("partial")) {
+        JsonArray dataArr = obj.get("data").getAsJsonArray();
+        if (dataArr.size() > 0 && (action.equals("update") || action.equals("partial"))) {
             JsonObject positionData = this.data.get("position").get(0).getAsJsonObject();
-            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
+            JsonObject data = dataArr.get(0).getAsJsonObject();
             for (String key : data.keySet()) {
                 if (!data.get(key).isJsonNull())
                     positionData.addProperty(key, data.get(key).getAsString());

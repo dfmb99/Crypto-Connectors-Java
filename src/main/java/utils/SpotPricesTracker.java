@@ -6,14 +6,14 @@ import java.util.logging.Logger;
 public class SpotPricesTracker {
     private final static Logger LOGGER = Logger.getLogger(SpotPricesTracker.class.getName());
 
-    private static final String[] MEX_CONTRACT = {"XBTUSD"};
+    private static final String[] MEX_CONTRACT = {"XBTUSD", "XBTM20"};
 
-    private static final String[] KRAKEN = {"KRAK", "BTC/USD"};
-    private static final String[] ITBIT = {"ITBT", "XBTUSD"};
-    private static final String[] BITTREX = {"BTRX", "USD-BTC"};
-    private static final String[] GEMINI = {"GMNI", "BTCUSD"};
-    private static final String[] BITSTAMP = {"BSTP", "btcusd"};
-    private static final String[] COINBASE = {"GDAX", "BTC-USD"};
+    private static final String[] KRAKEN = {"KRAK", "BTC/USD", "BTC/USD"};
+    private static final String[] ITBIT = {"ITBT", "XBTUSD", "XBTUSD"};
+    private static final String[] BITTREX = {"BTRX", "USD-BTC", "USD-BTC"};
+    private static final String[] GEMINI = {"GMNI", "BTCUSD", "BTCUSD"};
+    private static final String[] BITSTAMP = {"BSTP", "btcusd", "btcusd"};
+    private static final String[] COINBASE = {"GDAX", "BTC-USD", "BTC-USD"};
 
 
     private kraken.WsImp kraken;

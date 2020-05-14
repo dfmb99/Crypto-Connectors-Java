@@ -1,5 +1,6 @@
 package market_maker;
 
+import bitmex.ws.WsImp;
 import com.google.gson.Gson;
 
 import java.io.IOException;
@@ -23,13 +24,17 @@ public class Main {
         //swGvEbz7gQG1uAFRMheNby3D
         //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
 
-        /**WsImp ws = null;
-         ws = new WsImp(true, "XGN7I-BhV7giM-ihQwo9Rw3F",
-         "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
-         "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"");
-         */
-        String arr = null;
-        System.out.println();
+        WsImp ws = null;
+         ws = new WsImp(false, "swGvEbz7gQG1uAFRMheNby3D",
+         "0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "XBTM20");
+        float fairBasisRate = -1f;
+         while(true){
+             Thread.sleep(100);
+             if(ws.get_instrument().get(0).getAsJsonObject().get("fairBasisRate").getAsFloat() != fairBasisRate) {
+                 fairBasisRate = ws.get_instrument().get(0).getAsJsonObject().get("fairBasisRate").getAsFloat();
+                 System.out.println(ws.get_instrument().get(0).getAsJsonObject().get("timestamp").getAsString() + "     New fair basis rate" + fairBasisRate);
+             }
+        }
     }
 
 
