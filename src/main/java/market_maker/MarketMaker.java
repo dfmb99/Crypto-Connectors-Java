@@ -27,13 +27,12 @@ class ExchangeInterface {
     private SpotPricesTracker spotPrices;
     // array that stores exchanges names that are used as index in our symbol
     private String[] refs;
+    // array that stores exchanges weights that are used as index in our symbol
+    private Float[] weights;
     // Underlying symbol of contract
     private String underlyingSymbol;
     // if perpetual contract null, otherwise date of expiration
     private String expiry;
-
-    private float[] weights;
-    private boolean postOnly;
 
     public ExchangeInterface(Settings settings) {
         this.settings = settings;
@@ -49,20 +48,25 @@ class ExchangeInterface {
         this.expiry = instrument.get("expiry") == null ? null : instrument.get("expiry").getAsString();
         this.underlyingSymbol = instrument.get("underlyingSymbol").getAsString();
         // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
-        this.underlyingSymbol = ".B".concat(underlyingSymbol.split("=")[0]);
+        this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]).replaceAll("\"", "");
+        this.get_instrument_composite_index();
     }
 
     public void get_instrument_composite_index() {
         // request to know composition of index on the symbol we are quoting
         JsonArray compIndRes = mexRest.get_instrument_compositeIndex(underlyingSymbol);
-        System.out.println(compIndRes);
         List<String> exchangeRefs = new ArrayList<>();
+        List<Float> exchangeWeights = new ArrayList<>();
         for(JsonElement elem: compIndRes) {
-            String reference = elem.getAsJsonObject().get("reference").getAsString();
+            JsonObject obj = elem.getAsJsonObject();
+            String reference = obj.get("reference").getAsString();
             if(reference.equalsIgnoreCase("BMI")) break;
+            float weight = obj.get("weight").getAsFloat();
             exchangeRefs.add(reference);
+            exchangeWeights.add(weight);
         }
         this.refs = exchangeRefs.toArray(new String[exchangeRefs.size()]);
+        this.weights = exchangeWeights.toArray(new Float[exchangeWeights.size()]);
         spotPrices.addExchanges(this.refs);
     }
 
@@ -194,7 +198,7 @@ class ExchangeInterface {
      */
     public JsonObject prepare_limit_order(long orderQty, float price) {
         JsonObject params = new JsonObject();
-        String execInst = this.postOnly ? "ParticipateDoNotInitiate" : "";
+        String execInst = settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
 
         params.addProperty("symbol", this.symbol);
         params.addProperty("orderQty", orderQty);
