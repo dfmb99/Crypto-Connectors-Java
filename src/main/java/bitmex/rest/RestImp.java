@@ -263,7 +263,7 @@ public class RestImp implements Rest {
             params.addProperty("symbol", compIndex);
             params.addProperty("count", 50);
             params.addProperty("reverse", true);
-            return JsonParser.parseString(api_call("GET", "/instrument", params)).getAsJsonArray();
+            return JsonParser.parseString(api_call("GET", "/instrument/compositeIndex", params)).getAsJsonArray();
         } catch (ApiErrorException e) {
             LOGGER.warning(e.getMessage());
             return null;

@@ -5,41 +5,65 @@ import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import utils.SpotPricesTracker;
 
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Logger;
 
 class ExchangeInterface {
     private final static Logger LOGGER = Logger.getLogger(ExchangeInterface.class.getName());
+    // Funding interval of perpetual swaps on miliseconds
+    private final static long FUNDING_INTERVAL = 28800000;
+
     private RestImp mexRest;
     private WsImp mexWs;
     private String orderIDPrefix;
     private String symbol;
     private Settings settings;
+    // class that deals with ticker data on other exchanges
+    private SpotPricesTracker spotPrices;
+    // array that stores exchanges names that are used as index in our symbol
+    private String[] refs;
+    // Underlying symbol of contract
+    private String underlyingSymbol;
+    // if perpetual contract null, otherwise date of expiration
+    private String expiry;
+
+    private float[] weights;
     private boolean postOnly;
 
     public ExchangeInterface(Settings settings) {
         this.settings = settings;
         this.orderIDPrefix = "mmbitmex";
+        this.symbol = settings.SYMBOL;
         this.mexRest = new RestImp(true, settings.API_KEY, settings.API_SECRET, orderIDPrefix);
-        this.mexWs = new WsImp(true, settings.API_KEY, settings.API_SECRET);
-        this.symbol = "";
+        this.mexWs = new WsImp(true, settings.API_KEY, settings.API_SECRET, symbol);
+        this.spotPrices = new SpotPricesTracker(symbol);
 
+        // Initial data
+
+        JsonObject instrument = mexWs.get_instrument().get(0).getAsJsonObject();
+        this.expiry = instrument.get("expiry") == null ? null : instrument.get("expiry").getAsString();
+        this.underlyingSymbol = instrument.get("underlyingSymbol").getAsString();
+        // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
+        this.underlyingSymbol = ".B".concat(underlyingSymbol.split("=")[0]);
     }
 
-    public void get_instrument_composite_Index() {
-        // underlying symbol ( eg. 'XBT=' )
-        String compIndex = mexRest.get_instrument(symbol).get(0).getAsJsonObject().get("underlyingSymbol").getAsString();
-        compIndex = ".B".concat(compIndex.split("=")[0]);
-
-        JsonArray compIndRes = mexRest.get_instrument_compositeIndex(compIndex);
+    public void get_instrument_composite_index() {
+        // request to know composition of index on the symbol we are quoting
+        JsonArray compIndRes = mexRest.get_instrument_compositeIndex(underlyingSymbol);
+        System.out.println(compIndRes);
+        List<String> exchangeRefs = new ArrayList<>();
         for(JsonElement elem: compIndRes) {
-            String exchangeRef = elem.getAsJsonObject().get("reference").getAsString();
-
-            Arrays.stream(settings.SPOT_EXCHANGES_REF).anyMatch("s"::equals);
+            String reference = elem.getAsJsonObject().get("reference").getAsString();
+            if(reference.equalsIgnoreCase("BMI")) break;
+            exchangeRefs.add(reference);
         }
+        this.refs = exchangeRefs.toArray(new String[exchangeRefs.size()]);
+        spotPrices.addExchanges(this.refs);
     }
 
     /**
@@ -83,7 +107,7 @@ class ExchangeInterface {
      *
      * @return position size
      */
-    public long getPosition() {
+    public long get_position() {
         return this.mexWs.get_position().get(0).getAsJsonObject().get("currentQty").getAsLong();
     }
 
@@ -232,7 +256,6 @@ public class MarketMaker {
     public static void main(String[] args) throws InterruptedException {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
         ExchangeInterface e = new ExchangeInterface(new Settings());
-        System.out.println(e.get_margin_used());
     }
 
     private void fileWatcher() throws IOException, InterruptedException {

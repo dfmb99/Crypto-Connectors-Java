@@ -12,7 +12,7 @@ public class SpotPricesTracker {
     private static final String[] ITBIT = {"ITBT", "XBTUSD"};
     private static final String[] BITTREX = {"BTRX", "USD-BTC"};
     private static final String[] GEMINI = {"GMNI", "BTCUSD"};
-    private static final String[] BITSTAMP = {"BSTP", "BTCUSD"};
+    private static final String[] BITSTAMP = {"BSTP", "btcusd"};
     private static final String[] COINBASE = {"GDAX", "BTC-USD"};
 
 

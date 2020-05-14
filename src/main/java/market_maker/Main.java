@@ -1,11 +1,9 @@
 package market_maker;
 
 import com.google.gson.Gson;
-import utils.SpotPricesTracker;
 
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.Arrays;
 import java.util.logging.Logger;
 
 
@@ -30,16 +28,8 @@ public class Main {
          "r0b7mi3r1ioUjrjvii0d0HAp0c2PE7aRVDEPUuhrCdKVwqJu", "\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
          "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\"");
          */
-        String[] params = {"KRAK", "ITBT", "BTRX", "GMNI"};
-        SpotPricesTracker s = new SpotPricesTracker("XBTUSD");
-        s.addExchanges(params);
-        while (true) {
-            long now = System.currentTimeMillis();
-            System.out.println(Arrays.toString(s.get_last_price()));
-            System.out.println(System.currentTimeMillis() - now);
-
-        }
-
+        String arr = null;
+        System.out.println();
     }
 
 

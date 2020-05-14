@@ -96,8 +96,9 @@ public class WsImp implements Ws {
      * @param testnet - true if we want to connect to testnet, false otherwise
      * @param apiKey - apiKey
      * @param apiSecret - apiSecret
+     * @param symbol - symbol to subscribe
      */
-    public WsImp(boolean testnet, String apiKey, String apiSecret) {
+    public WsImp(boolean testnet, String apiKey, String apiSecret, String symbol) {
         this.container = ContainerProvider.getWebSocketContainer();
         if (testnet)
             this.url = Ws.WS_TESTNET;
@@ -106,12 +107,11 @@ public class WsImp implements Ws {
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
         this.userSession = null;
-        this.subscriptions = "";
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
         this.g = new Gson();
-        this.setSubscriptions("\"instrument:XBTUSD\",\"orderBookL2:XBTUSD\",\"liquidation:XBTUSD\"," +
-                "\"order:XBTUSD\",\"position:XBTUSD\",\"execution:XBTUSD\",\"tradeBin1m:XBTUSD\", \"margin:*\"");
+        this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
+                "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
         this.connect();
         this.waitForData();
     }
@@ -126,10 +126,6 @@ public class WsImp implements Ws {
         String[] split = sub.split(",");
         for (String str : split) {
             String[] strArr = str.split(":");
-            if (strArr.length < 2) {
-                LOGGER.severe("orderIDPrefix max length is 8.");
-                System.exit(1);
-            }
             this.data.put(strArr[0].substring(1), new JsonArray());
         }
 
@@ -256,13 +252,13 @@ public class WsImp implements Ws {
      */
     private void update_intrument(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("insert")) {
+        if (action.equals("update") || action.equals("partial")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             // checks latency on the update
             check_latency(data.get("timestamp").getAsString());
             for (String key : data.keySet()) {
-                instrumentData.addProperty(key, data.get(key).getAsString());
+                instrumentData.addProperty(key, String.valueOf(data.get(key)));
             }
         }
     }
@@ -273,7 +269,6 @@ public class WsImp implements Ws {
      */
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
-        System.out.println(updateTime);
         long latency = System.currentTimeMillis() - updateTime;
         if( latency > Ws.MAX_LATENCY) {
             if (!this.heartbeatThread.isInterrupted())
@@ -362,10 +357,8 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_margin(JsonObject obj) {
-        System.out.println(obj);
-        System.out.println(obj);
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("insert")) {
+        if (action.equals("update") || action.equals("partial")) {
             JsonObject marginData = this.data.get("margin").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             for (String key : data.keySet()) {
@@ -382,7 +375,7 @@ public class WsImp implements Ws {
      */
     private void update_position(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("insert")) {
+        if (action.equals("update") || action.equals("partial")) {
             JsonObject positionData = this.data.get("position").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
             for (String key : data.keySet()) {
@@ -399,7 +392,7 @@ public class WsImp implements Ws {
      */
     private void update_tradeBin1m(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("insert")) {
+        if (action.equals("insert") || action.equals("partial")) {
             JsonArray tradeBin1mData = this.data.get("tradeBin1m");
             JsonArray data = obj.get("data").getAsJsonArray();
             for (JsonElement elem : data) {
@@ -417,7 +410,7 @@ public class WsImp implements Ws {
      */
     private void update_execution(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("insert")) {
+        if (action.equals("insert") || action.equals("partial")) {
             JsonArray executionData = this.data.get("execution");
             JsonArray data = obj.get("data").getAsJsonArray();
             for (JsonElement elem : data) {
