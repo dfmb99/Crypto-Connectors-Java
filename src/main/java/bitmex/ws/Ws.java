@@ -1,6 +1,7 @@
 package bitmex.ws;
 
 import com.google.gson.JsonArray;
+import market_maker.Settings;
 
 import javax.websocket.ClientEndpoint;
 
@@ -11,8 +12,8 @@ public interface Ws {
     String WS_MAINNET = "wss://www.bitmex.com/realtime";
 
     int LIQ_MAX_LEN = 50;
-    int TRADE_BIN_MAX_LEN = 200;
-    int EXEC_MAX_LEN = 10;
+    int TRADE_BIN_MAX_LEN = Settings.TRADE_BIN_MAX_LEN;
+    int EXEC_MAX_LEN = 100;
     int RETRY_PERIOD = 3000;
     int MAX_LATENCY = 15000;
 

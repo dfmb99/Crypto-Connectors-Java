@@ -13,7 +13,7 @@ public interface Rest {
     String API_PATH = "/api/v1";
 
     //Server configuration
-    int CONNECTION_TIMEOUT = 2000;
+    int CONNECTION_TIMEOUT = 3000;
     int REPLY_TIMEOUT = 2000;
     int RETRY_PERIOD = 3000;
 

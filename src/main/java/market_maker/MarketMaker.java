@@ -5,6 +5,7 @@ import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import utils.MathCustom;
 import utils.SpotPricesTracker;
 import utils.TimeStamp;
 
@@ -28,7 +29,6 @@ class ExchangeInterface {
     private WsImp mexWs;
     private String orderIDPrefix;
     private String symbol;
-    private Settings settings;
     // class that deals with ticker data on other exchanges
     protected SpotPricesTracker spotPrices;
     // array that stores exchanges weights that are used as index in our symbol
@@ -41,23 +41,25 @@ class ExchangeInterface {
     private IndexCheckThread indexThread;
     // timestamp on where indexes weights are updated
     protected long nextIndexUpdate;
+    // tickSize of contract
+    private float tickSize;
 
-    public ExchangeInterface(Settings settings) {
-        this.settings = settings;
+    public ExchangeInterface(String symbol) {
+        this.symbol = symbol;
         this.orderIDPrefix = "mmbitmex";
-        this.symbol = settings.SYMBOL;
-        this.mexRest = new RestImp(settings.TESTNET, settings.API_KEY, settings.API_SECRET, orderIDPrefix);
-        this.mexWs = new WsImp(settings.TESTNET, settings.API_KEY, settings.API_SECRET, symbol);
-        this.spotPrices = new SpotPricesTracker(symbol);
+        this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, orderIDPrefix);
+        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.symbol);
+        //this.spotPrices = new SpotPricesTracker(symbol);
         this.indexThread = null;
 
         // Initial data
         JsonObject instrument = mexWs.get_instrument().get(0).getAsJsonObject();
         this.expiry = instrument.get("expiry").isJsonNull() ? null : instrument.get("expiry").getAsString();
         this.underlyingSymbol = instrument.get("underlyingSymbol").getAsString();
+        this.tickSize = instrument.get("tickSize").getAsFloat();
         // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
         this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
-        this.get_instrument_composite_index();
+        //this.get_instrument_composite_index();
 
     }
 
@@ -231,10 +233,6 @@ class ExchangeInterface {
         return lowestSell;
     }
 
-    public float get_vol_index() {
-        return (float) 0.0;
-    }
-
     /**
      * Prepares a limit order
      *
@@ -244,7 +242,7 @@ class ExchangeInterface {
      */
     public JsonObject prepare_limit_order(long orderQty, float price) {
         JsonObject params = new JsonObject();
-        String execInst = settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
+        String execInst = Settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
 
         params.addProperty("symbol", this.symbol);
         params.addProperty("orderQty", orderQty);
@@ -291,12 +289,37 @@ class ExchangeInterface {
         params.addProperty("orders", String.valueOf(orders));
         return this.mexRest.post_order_bulk(params);
     }
+
+    /**
+     * Returns trade bucketed data 1minute
+     * @return JSONArray
+     */
+    public JsonArray get_tradeBin1m() {
+        return this.mexWs.get_trabeBin1m();
+    }
 }
 
-class OrderManager {
-    public OrderManager() {
+class MarketMakerManager {
+    private ExchangeInterface e;
 
+    public MarketMakerManager(String symbol) {
+        e = new ExchangeInterface(symbol);
     }
+
+    /**
+     * Returns volume index of current contract
+     * @return volIndex as float
+     */
+    private float get_volume_index() {
+        JsonArray arr =  e.get_tradeBin1m();
+        float[] closeArr = new float[arr.size()-1];
+        for(int i = 1; i < arr.size(); i++) {
+            closeArr[i-1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat()/ arr.get(i-1).getAsJsonObject().get("close").getAsFloat());
+        }
+        return (float) (MathCustom.calculateSD(closeArr) *  Math.sqrt(closeArr.length));
+    }
+
+
 }
 
 /**
@@ -347,6 +370,7 @@ class IndexCheckThread extends Thread {
 
             // Indexes weights get updated after quarterly futures expiry + 5 seconds
             if(System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
+                LOGGER.info("Updating index weights.");
                 this.interrupt();
                 e.get_instrument_composite_index();
             }
@@ -401,7 +425,8 @@ public class MarketMaker {
 
     public static void main(String[] args) throws InterruptedException {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
-        ExchangeInterface e = new ExchangeInterface(new Settings());
+        MarketMakerManager m = new MarketMakerManager(Settings.SYMBOL);
+
     }
 
     private void fileWatcher() throws IOException, InterruptedException {

@@ -24,8 +24,8 @@ public class WsImp {
     private float lastPrice;
 
     // connection constants
-    private final static int CONNECTION_TIMEOUT = 2000;
-    private final static int REPLY_TIMEOUT = 2000;
+    private final static int CONNECTION_TIMEOUT = 5000;
+    private final static int REPLY_TIMEOUT = 5000;
     private final static int RETRY_PERIOD = 3000;
 
     public WsImp(String symbol) {

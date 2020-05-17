@@ -7,12 +7,11 @@ import java.io.IOException;
 import java.text.ParseException;
 import java.util.logging.Logger;
 
-
 public class Main {
 
     private final static Logger LOGGER = Logger.getLogger(Main.class.getName());
 
-    public static void main(String[] args) throws InterruptedException, ParseException, IOException {
+    public static void main2(String[] args) throws InterruptedException, ParseException, IOException {
         Gson g = new Gson();
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
         // open websocket
@@ -25,16 +24,33 @@ public class Main {
         //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
 
         WsImp ws = null;
-         ws = new WsImp(false, "swGvEbz7gQG1uAFRMheNby3D",
+         ws = new WsImp(null,false, "swGvEbz7gQG1uAFRMheNby3D",
          "0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "XBTM20");
-        float fairBasisRate = -1f;
-         while(true){
-             Thread.sleep(100);
-             if(ws.get_instrument().get(0).getAsJsonObject().get("fairBasisRate").getAsFloat() != fairBasisRate) {
-                 fairBasisRate = ws.get_instrument().get(0).getAsJsonObject().get("fairBasisRate").getAsFloat();
-                 System.out.println(ws.get_instrument().get(0).getAsJsonObject().get("timestamp").getAsString() + "     New fair basis rate" + fairBasisRate);
-             }
+
+
+    }
+    public static void main(String[] args) {
+        //float[] numArray = { 1,6,2,234,54,63,13,75};
+        //float SD = calculateSD(numArray);
+        float n = 0.00000000012f;
+    }
+
+    public static float calculateSD(float numArray[])
+    {
+        double sum = 0.0, standardDeviation = 0.0;
+        int length = numArray.length;
+
+        for(double num : numArray) {
+            sum += num;
         }
+
+        double mean = sum/length;
+
+        for(double num: numArray) {
+            standardDeviation += Math.pow(num - mean, 2);
+        }
+
+        return (float) Math.sqrt(standardDeviation/ (length-1) );
     }
 
 

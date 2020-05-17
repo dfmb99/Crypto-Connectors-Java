@@ -1,6 +1,7 @@
 package bitmex.ws;
 
 import bitmex.rest.Rest;
+import bitmex.rest.RestImp;
 import utils.Auth;
 import utils.BinarySearch;
 import com.google.gson.*;
@@ -78,11 +79,13 @@ public class WsImp implements Ws {
 
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
     private WebSocketContainer container;
+    private RestImp rest;
     private Session userSession;
     private final String url;
     private final String apiKey;
     private final String apiSecret;
     private String subscriptions;
+    private String symbol;
     // order messages from web socket need to be ordered and processed synchronously
     private OrderAsyncThread orderQueue;
     // structure to store web socket data in local storage
@@ -93,13 +96,15 @@ public class WsImp implements Ws {
     /**
      * BitMex web socket client implementation for one symbol
      *
+     * @param rest - bitmex rest api object
      * @param testnet - true if we want to connect to testnet, false otherwise
      * @param apiKey - apiKey
      * @param apiSecret - apiSecret
      * @param symbol - symbol to subscribe
      */
-    public WsImp(boolean testnet, String apiKey, String apiSecret, String symbol) {
+    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol) {
         this.container = ContainerProvider.getWebSocketContainer();
+        this.rest = rest;
         if (testnet)
             this.url = Ws.WS_TESTNET;
         else
@@ -110,6 +115,7 @@ public class WsImp implements Ws {
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
         this.g = new Gson();
+        this.symbol = symbol;
         this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
                 "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
         this.connect();
@@ -137,6 +143,8 @@ public class WsImp implements Ws {
             this.data.get("position").add(new JsonObject());
         if (this.data.containsKey("order"))
             this.orderQueue = new OrderAsyncThread(this);
+        if(this.data.containsKey("tradeBin1m") && this.rest != null)
+            this.data.put("tradeBin1m", this.get_last_1mCandles());
     }
 
     /**
@@ -395,13 +403,13 @@ public class WsImp implements Ws {
      */
     private void update_tradeBin1m(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("insert") || action.equals("partial")) {
+        if (action.equals("insert")) {
             JsonArray tradeBin1mData = this.data.get("tradeBin1m");
             JsonArray data = obj.get("data").getAsJsonArray();
             for (JsonElement elem : data) {
                 if (tradeBin1mData.size() == Ws.TRADE_BIN_MAX_LEN)
-                    tradeBin1mData.remove(0);
-                tradeBin1mData.add(elem);
+                    tradeBin1mData.remove(Ws.TRADE_BIN_MAX_LEN - 1);
+                this.data.put("tradeBin1m", insert(0, elem, tradeBin1mData));
             }
         }
     }
@@ -532,6 +540,19 @@ public class WsImp implements Ws {
     }
 
     /**
+     * Makes api rest call to get last trade bucketed data
+     * @return Returns last candles data for current symbol
+     */
+    public JsonArray get_last_1mCandles() {
+        JsonObject params = new JsonObject();
+        params.addProperty("binSize", "1m");
+        params.addProperty("symbol", this.symbol);
+        params.addProperty("count", Ws.TRADE_BIN_MAX_LEN);
+        params.addProperty("reverse", true);
+        return this.rest.get_trade_bucketed(params);
+    }
+
+    /**
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
@@ -574,6 +595,11 @@ public class WsImp implements Ws {
      */
     @OnError
     public void onError(Throwable throwable) {
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            // Do nothing
+        }
         LOGGER.warning(throwable.toString());
     }
 

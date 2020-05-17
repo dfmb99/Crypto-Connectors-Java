@@ -1,14 +1,12 @@
 package bitmex.rest;
 
-import exceptions.ApiConnectionException;
-import exceptions.ApiErrorException;
-import utils.Auth;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
+import utils.Auth;
 
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.client.*;
@@ -36,13 +34,13 @@ public class RestImp implements Rest {
     /**
      * Implementation to connect to the Bitmex Rest API, see more at https://www.bitmex.com/api/explorer/
      *
-     * @param testnet   - true if we want to connect to testnet, false otherwise
-     * @param apiKey    - apiKey of client
-     * @param apiSecret - apiSecret of client
+     * @param testnet       - true if we want to connect to testnet, false otherwise
+     * @param apiKey        - apiKey of client
+     * @param apiSecret     - apiSecret of client
      * @param orderIDPrefix - every order placed will start with this ID (max 8 characters)
      */
     public RestImp(boolean testnet, String apiKey, String apiSecret, String orderIDPrefix) {
-        if(orderIDPrefix.length() > 8) {
+        if (orderIDPrefix.length() > 8) {
             LOGGER.severe("orderIDPrefix max length is 8.");
             System.exit(1);
         }
@@ -62,7 +60,7 @@ public class RestImp implements Rest {
      * @param data     - data sent either in url ('GET') or in the body
      * @return error message if request could not be retried, or retried request response (both as String)
      */
-    public String api_call(String verb, String endpoint, JsonObject data) throws ApiErrorException {
+    public String api_call(String verb, String endpoint, JsonObject data) {
         WebTarget target = client.target(url).path(Rest.API_PATH + endpoint);
         if (verb.equalsIgnoreCase("GET")) {
             for (String name : data.keySet()) {
@@ -101,19 +99,13 @@ public class RestImp implements Rest {
                 else if (verb.equalsIgnoreCase("DELETE"))
                     r = httpReq.build("DELETE", Entity.entity(data.toString(), MediaType.APPLICATION_JSON)).invoke();
 
-
-                if (r == null) {
-                    LOGGER.severe("No response from server.");
-                    throw new ApiConnectionException();
-                }
-
                 int status = r.getStatus();
                 success = true;
 
                 if (status == Response.Status.OK.getStatusCode() && r.hasEntity())
                     return r.readEntity(String.class);
                 else if (r.hasEntity())
-                    api_error(status, verb, endpoint, data, r.readEntity(String.class), r.getHeaders());
+                    return api_error(status, verb, endpoint, data, r.readEntity(String.class), r.getHeaders());
 
             } catch (ProcessingException pe) { //Error in communication with server
                 LOGGER.info("Timeout occurred.");
@@ -123,12 +115,9 @@ public class RestImp implements Rest {
                     //Nothing to be done here, if this happens we will just retry sooner.
                 }
                 LOGGER.info("Retrying to execute request.");
-            } catch (ApiConnectionException e) { //Unhandled error after api request
-                LOGGER.severe(e.getMessage());
-                System.exit(1);
             }
         }
-        throw new ApiErrorException("Connection Error.");
+        return null;
     }
 
     /**
@@ -160,10 +149,9 @@ public class RestImp implements Rest {
      * @param data     - data sent either in url ('GET') or in the body
      * @param response - response as string received by the server
      * @param headers  - headers of http request
-     * @throws ApiErrorException - in case of error with api
      */
-    private void api_error(int status, String verb, String endpoint, JsonObject data, String response,
-                           MultivaluedMap<String, Object> headers) throws ApiErrorException {
+    private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
+                             MultivaluedMap<String, Object> headers) {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
         String errName = errorObj.get("name").toString();
         String errMsg = errorObj.get("message").toString();
@@ -173,16 +161,14 @@ public class RestImp implements Rest {
         if (status == 400 || status == 401 || status == 403) {
             //Parameter error, Unauthorized or Forbidden
             LOGGER.severe(errLog);
-            throw new ApiErrorException(errMsg);
+            System.exit(1);
         } else if (status == 404) {
             LOGGER.warning(errLog);
             //Order not found
-            if (verb.equalsIgnoreCase("DELETE")) {
-                throw new ApiErrorException(errMsg);
-            }
+            if (verb.equalsIgnoreCase("DELETE"))
+                return errorObj.toString();
             sleep(3000); //waits 3000ms until attempting again.
-            api_call(verb, endpoint, data);
-            return;
+            return api_call(verb, endpoint, data);
         } else if (status == 429) {
             LOGGER.warning(errLog);
             System.currentTimeMillis();
@@ -191,16 +177,14 @@ public class RestImp implements Rest {
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
             LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
             sleep(toSleep); //waits until attempting again.
-            api_call(verb, endpoint, data);
-            return;
+            return api_call(verb, endpoint, data);
         } else if (status == 503) {
             LOGGER.warning(errLog);
             sleep(3000); //waits 3000ms until attempting again.
-            api_call(verb, endpoint, data);
-            return;
+            return api_call(verb, endpoint, data);
         }
-        LOGGER.severe("Unhandled error. \n " + errLog);
-        throw new ApiErrorException(errLog);
+        LOGGER.warning("Unhandled error. \n " + errLog);
+        return errorObj.toString();
     }
 
     /**
@@ -218,194 +202,109 @@ public class RestImp implements Rest {
 
     /**
      * Returns new order ID with the given prefix
+     *
      * @return new order ID
      */
     private String setNewOrderID() {
-        return orderIDPrefix + Base64.getEncoder().encodeToString((UUID.randomUUID().toString()).getBytes()).substring(0,28);
+        return orderIDPrefix + Base64.getEncoder().encodeToString((UUID.randomUUID().toString()).getBytes()).substring(0, 28);
     }
 
     @Override
     public JsonArray get_execution(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("GET", "/execution", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/execution", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray get_execution_tradeHistory(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("GET", "/execution/tradeHistory", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/execution/tradeHistory", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray get_instrument(String symbol) {
-        try {
-            JsonObject params = new JsonObject();
-            params.addProperty("symbol", symbol);
-            return JsonParser.parseString(api_call("GET", "/instrument", params)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        JsonObject params = new JsonObject();
+        params.addProperty("symbol", symbol);
+        return JsonParser.parseString(api_call("GET", "/instrument", params)).getAsJsonArray();
     }
 
     @Override
     public JsonArray get_instrument_compositeIndex(String compIndex) {
-        try {
-            JsonObject params = new JsonObject();
-            params.addProperty("symbol", compIndex);
-            params.addProperty("count", 50);
-            params.addProperty("reverse", true);
-            return JsonParser.parseString(api_call("GET", "/instrument/compositeIndex", params)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        JsonObject params = new JsonObject();
+        params.addProperty("symbol", compIndex);
+        params.addProperty("count", 50);
+        params.addProperty("reverse", true);
+        return JsonParser.parseString(api_call("GET", "/instrument/compositeIndex", params)).getAsJsonArray();
     }
 
     @Override
     public JsonArray get_order(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
     }
 
     @Override
     public JsonObject put_order(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("PUT", "/order", data)).getAsJsonObject();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("PUT", "/order", data)).getAsJsonObject();
     }
 
     @Override
     public JsonObject post_order(JsonObject data) {
-        try {
-            //Adds cl0rdID property on order
-            data.addProperty("clOrdID", setNewOrderID());
-            return JsonParser.parseString(api_call("POST", "/order", data)).getAsJsonObject();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        //Adds cl0rdID property on order
+        data.addProperty("clOrdID", setNewOrderID());
+        return JsonParser.parseString(api_call("POST", "/order", data)).getAsJsonObject();
     }
 
     @Override
     public JsonArray del_order(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("DELETE", "/order", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("DELETE", "/order", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray del_order_all(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("DELETE", "/order/all", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("DELETE", "/order/all", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray put_order_bulk(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("PUT", "/order/bulk", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("PUT", "/order/bulk", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray post_order_bulk(JsonObject data) {
-        try {
-            //Adds cl0rdID property on each order
-            JsonArray orders = data.get("orders").getAsJsonArray();
-            for (JsonElement e : orders) {
-                e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());
-            }
-            return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        //Adds cl0rdID property on each order
+        JsonArray orders = data.get("orders").getAsJsonArray();
+        for (JsonElement e : orders)
+            e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());
+        return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
     }
 
     @Override
     public JsonObject post_order_cancelAllAfter(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("POST", "/order/cancelAllAfter", data)).getAsJsonObject();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("POST", "/order/cancelAllAfter", data)).getAsJsonObject();
     }
 
     @Override
     public JsonArray get_position(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("GET", "/position", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/position", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray get_trade_bucketed(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("GET", "/trade/bucketed", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/trade/bucketed", data)).getAsJsonArray();
     }
 
     @Override
     public JsonObject get_user_margin() {
-        try {
-            //BitMex only allows BTC as margin
-            JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject();
-            return JsonParser.parseString(api_call("GET", "/user/margin", data)).getAsJsonObject();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        //BitMex only allows BTC as margin
+        JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject();
+        return JsonParser.parseString(api_call("GET", "/user/margin", data)).getAsJsonObject();
     }
 
     @Override
     public JsonArray get_user_walletHistory(JsonObject data) {
-        try {
-            return JsonParser.parseString(api_call("GET", "/user/walletHistory", data)).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/user/walletHistory", data)).getAsJsonArray();
     }
 
     @Override
     public JsonArray get_user_quoteFillRatio() {
-        try {
-            return JsonParser.parseString(api_call("GET", "/user/quoteFillRatio", new JsonObject())).getAsJsonArray();
-        } catch (ApiErrorException e) {
-            LOGGER.warning(e.getMessage());
-            return null;
-        }
+        return JsonParser.parseString(api_call("GET", "/user/quoteFillRatio", new JsonObject())).getAsJsonArray();
     }
 }
