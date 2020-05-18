@@ -27,8 +27,8 @@ class ExchangeInterface {
 
     private RestImp mexRest;
     private WsImp mexWs;
-    private String orderIDPrefix;
     private String symbol;
+    private String orderIDPrefix;
     // class that deals with ticker data on other exchanges
     protected SpotPricesTracker spotPrices;
     // array that stores exchanges weights that are used as index in our symbol
@@ -46,10 +46,10 @@ class ExchangeInterface {
 
     public ExchangeInterface(String symbol) {
         this.symbol = symbol;
-        this.orderIDPrefix = "mmbitmex";
-        this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, orderIDPrefix);
+        this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
+        this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
         this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.symbol);
-        //this.spotPrices = new SpotPricesTracker(symbol);
+        this.spotPrices = new SpotPricesTracker(symbol);
         this.indexThread = null;
 
         // Initial data
@@ -59,10 +59,21 @@ class ExchangeInterface {
         this.tickSize = instrument.get("tickSize").getAsFloat();
         // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
         this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
-        //this.get_instrument_composite_index();
+        this.get_instrument_composite_index();
 
     }
 
+    /**
+     * Returns tick size of contract
+     * @return tickSize as float
+     */
+    protected float get_tickSize() {
+        return this.tickSize;
+    }
+
+    /**
+     * Get current instrument indixes composition and weights
+     */
     protected void get_instrument_composite_index() {
         // Interrupts index thread if thread exists
         if (this.indexThread != null && !this.indexThread.isInterrupted())
@@ -272,7 +283,7 @@ class ExchangeInterface {
      */
     public JsonArray place_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
-        params.addProperty("orders", String.valueOf(orders));
+        params.add("orders", orders);
         return this.mexRest.post_order_bulk(params);
     }
 
@@ -294,7 +305,7 @@ class ExchangeInterface {
      */
     public JsonArray amend_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
-        params.addProperty("orders", String.valueOf(orders));
+        params.add("orders", orders);
         return this.mexRest.put_order_bulk(params);
     }
 
@@ -310,12 +321,13 @@ class ExchangeInterface {
 
 class MarketMakerManager {
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
-    private ExchangeInterface e;
+    private final ExchangeInterface e;
     private String symbol;
 
     public MarketMakerManager(String symbol) {
         e = new ExchangeInterface(symbol);
         this.symbol = symbol;
+        run_loop();
     }
 
     /**
@@ -384,16 +396,27 @@ class MarketMakerManager {
         return skew;
     }
 
+    /**
+     * Gets new bid price given the current position size
+     * @return price
+     */
     private float get_new_bid_price() {
         float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
-        return quoteMidPrice * (1 - get_volume_index());
+        return (float) MathCustom.roundToFraction(quoteMidPrice * (1 - get_volume_index()) , e.get_tickSize());
     }
 
+    /**
+     * Gets new ask price given the current position size
+     * @return price
+     */
     private float get_new_ask_price() {
         float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
-        return quoteMidPrice * (1 + get_volume_index());
+        return (float) MathCustom.roundToFraction(quoteMidPrice * (1 + get_volume_index()), e.get_tickSize());
     }
 
+    /**
+     * Checks current order spreads to markPrice, and amends them if necessary
+     */
     private void check_current_spread() {
         float fairPrice = e.get_mark_price();
         JsonObject buy = e.get_highest_buy();
@@ -420,14 +443,14 @@ class MarketMakerManager {
             newBuy.addProperty("orderID", buy.get("orderID").getAsString());
             newBuy.addProperty("price", get_new_bid_price());
             orders.add(newBuy);
-            LOGGER.info(String.format("Amending %s order from %d to %d", buy.get("side").getAsString(), buy.get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
+            LOGGER.info(String.format("Amending %s order from %f to %f", buy.get("side").getAsString(), buy.get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
         }
         if (sell.keySet().size() > 0) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", sell.get("orderID").getAsString());
             newSell.addProperty("price", get_new_ask_price());
             orders.add(newSell);
-            LOGGER.info(String.format("Amending %s order from %d to %d", sell.get("side").getAsString(), sell.get("price").getAsFloat(), newSell.get("price").getAsFloat()));
+            LOGGER.info(String.format("Amending %s order from %f to %f", sell.get("side").getAsString(), sell.get("price").getAsFloat(), newSell.get("price").getAsFloat()));
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0)
@@ -456,13 +479,13 @@ class MarketMakerManager {
         if (buys.size() < 1) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, get_new_bid_price());
             orders.add(newBuy);
-            LOGGER.info(String.format("Creating buy order of %d contracts at %d", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
+            LOGGER.info(String.format("Creating buy order of %d contracts at %f", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
         }
 
         if (sells.size() < 1) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, get_new_ask_price());
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %d", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
+            LOGGER.info(String.format("Creating sell order of %d contracts at %f", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0)
@@ -478,6 +501,11 @@ class MarketMakerManager {
         while (true) {
             converge_orders();
             check_current_spread();
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException interruptedException) {
+                // Do nothing
+            }
         }
     }
 }

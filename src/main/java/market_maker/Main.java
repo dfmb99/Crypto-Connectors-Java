@@ -32,7 +32,7 @@ public class Main {
     }
     public static void main(String[] args) {
         JsonObject obj = new JsonObject();
-        System.out.println(obj.keySet().size());
+        System.out.println(Settings.API_SECRET);
     }
 
 }

@@ -122,7 +122,7 @@ public class WsImp {
         String type = response.get("type").getAsString();
 
         if (type.equalsIgnoreCase("update") && response.get("events").getAsJsonArray().size() > 0) {
-            LOGGER.info("Received ticker update.");
+            LOGGER.fine("Received ticker update.");
             // checks latency on update
             check_latency(response.get("timestampms").getAsLong());
             //checks seqNum

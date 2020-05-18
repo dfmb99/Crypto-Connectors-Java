@@ -541,7 +541,7 @@ public class WsImp implements Ws {
         JsonArray ret = new JsonArray();
         JsonArray openOrders = this.data.get("order");
         for (JsonElement elemRec : openOrders) {
-            if(elemRec.getAsJsonObject().get("orderID").getAsString().startsWith(orderIDPrefix))
+            if(elemRec.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix))
                 ret.add(elemRec);
         }
         return ret;
