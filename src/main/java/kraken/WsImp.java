@@ -27,10 +27,10 @@ class HeartbeatThread extends Thread {
         while (!Thread.interrupted()) {
             if (System.currentTimeMillis() - startTime > 5000 && !sentPing) {
                 sentPing = true;
-                LOGGER.fine("Heartbeat thread sending ping.");
+                LOGGER.finest("Heartbeat thread sending ping.");
                 this.ws.sendMessage("{\"event\": \"ping\"}");
             } else if (System.currentTimeMillis() - startTime > 10000) {
-                LOGGER.fine("Heartbeat thread reconnecting.");
+                LOGGER.finest("Heartbeat thread reconnecting.");
                 this.ws.connect();
                 this.interrupt();
             }
@@ -45,10 +45,10 @@ public class WsImp {
     private final static String URL = "wss://ws.kraken.com";
     private final static int RETRY_PERIOD = 3000;
 
-    private WebSocketContainer container;
+    private final WebSocketContainer container;
     private HeartbeatThread heartbeatThread;
     private Session userSession;
-    private String symbol;
+    private final String symbol;
     // last price of ticker
     private float lastPrice;
     // subscription channelID
@@ -132,6 +132,7 @@ public class WsImp {
                 LOGGER.warning(response.get("errorMessage").getAsString());
 
         } else {
+            LOGGER.fine("Received ticker data.");
             JsonArray dataArr = JsonParser.parseString(message).getAsJsonArray();
             if(dataArr.get(0).getAsInt() == this.tickerID)
                 new Thread(() -> update_ticker(dataArr)).start();
@@ -159,7 +160,6 @@ public class WsImp {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        LOGGER.fine("Waiting for data.");
         while (this.lastPrice < 0.0) {
             try {
                 Thread.sleep(10);
@@ -167,7 +167,6 @@ public class WsImp {
                 // Do nothing
             }
         }
-        LOGGER.fine("Data received.");
     }
 
     /**

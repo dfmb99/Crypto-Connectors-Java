@@ -34,10 +34,10 @@ class HeartbeatThread extends Thread {
         while (!Thread.interrupted()) {
             if (System.currentTimeMillis() - startTime > 5000 && !sentPing) {
                 sentPing = true;
-                LOGGER.fine("Heartbeat thread sending ping.");
+                LOGGER.finest("Heartbeat thread sending ping.");
                 this.ws.sendMessage("ping");
             } else if (System.currentTimeMillis() - startTime > 10000) {
-                LOGGER.fine("Heartbeat thread reconnecting.");
+                LOGGER.finest("Heartbeat thread reconnecting.");
                 this.ws.connect();
                 this.interrupt();
             }
@@ -60,6 +60,7 @@ class OrderAsyncThread extends Thread {
     }
 
     public void add(JsonObject obj) {
+        LOGGER.finest("Added order to queue.");
         this.queue.addLast(obj); // blocks until there is free space in the optionally bounded queue
     }
 
@@ -68,6 +69,7 @@ class OrderAsyncThread extends Thread {
         while (!Thread.interrupted()) {
             JsonObject element;
             while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
+                LOGGER.finest("Processing order from queue.");
                 this.ws.update_order(element);
             }
         }
@@ -78,20 +80,19 @@ class OrderAsyncThread extends Thread {
 public class WsImp implements Ws {
 
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
-    private WebSocketContainer container;
-    private RestImp rest;
+    private final WebSocketContainer container;
+    private final RestImp rest;
     private Session userSession;
     private final String url;
     private final String apiKey;
     private final String apiSecret;
     private String subscriptions;
-    private String symbol;
+    private final String symbol;
     // order messages from web socket need to be ordered and processed synchronously
     private OrderAsyncThread orderQueue;
     // structure to store web socket data in local storage
     private final Map<String, JsonArray> data;
     private HeartbeatThread heartbeatThread;
-    private final Gson g;
 
     /**
      * BitMex web socket client implementation for one symbol
@@ -114,7 +115,6 @@ public class WsImp implements Ws {
         this.userSession = null;
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
-        this.g = new Gson();
         this.symbol = symbol;
         this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
                 "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
@@ -225,27 +225,35 @@ public class WsImp implements Ws {
             String table = obj.get("table").getAsString();
             switch (table) {
                 case "instrument":
+                    LOGGER.fine("Received instrument update.");
                     new Thread(() -> update_intrument(obj)).start();
                     break;
                 case "orderBookL2":
+                    LOGGER.finest("Received orderbookL2 update.");
                     new Thread(() -> update_orderBookL2(obj)).start();
                     break;
                 case "liquidation":
+                    LOGGER.finest("Received liquidation update.");
                     new Thread(() -> update_liquidation(obj)).start();
                     break;
                 case "margin":
+                    LOGGER.finest("Received margin update.");
                     new Thread(() -> update_margin(obj)).start();
                     break;
                 case "position":
+                    LOGGER.finest("Received position update.");
                     new Thread(() -> update_position(obj)).start();
                     break;
                 case "tradeBin1m":
+                    LOGGER.finest("Received tradeBin1m update.");
                     new Thread(() -> update_tradeBin1m(obj)).start();
                     break;
                 case "execution":
+                    LOGGER.finest("Received execution update.");
                     new Thread(() -> update_execution(obj)).start();
                     break;
                 case "order":
+                    LOGGER.finest("Received order update.");
                     // adds message to the queue that leads with order messages;
                     orderQueue.add(obj);
                     break;
@@ -275,7 +283,7 @@ public class WsImp implements Ws {
 
     /**
      * Checks latency on a websocket update
-     * @param timestamp
+     * @param timestamp - timestamp of lasst update
      */
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
@@ -556,7 +564,6 @@ public class WsImp implements Ws {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        LOGGER.fine("Waiting for data.");
         while( this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") == null ) {
             try {
                 Thread.sleep(10);
@@ -564,7 +571,6 @@ public class WsImp implements Ws {
                 // Do nothing
             }
         }
-        LOGGER.fine("Data received.");
     }
 
     /**

@@ -15,9 +15,9 @@ public class WsImp {
     private final static int RETRY_PERIOD = 3000;
     private final static int MAX_LATENCY = 15000;
 
-    private WebSocketContainer container;
+    private final WebSocketContainer container;
     private Session userSession;
-    private String symbol;
+    private final String symbol;
     private float lastPrice;
 
     /**
@@ -83,9 +83,10 @@ public class WsImp {
         String event = response.get("event").getAsString();
         JsonObject data = response.get("data").getAsJsonObject();
 
-        if (event.equalsIgnoreCase("trade"))
+        if (event.equalsIgnoreCase("trade")) {
+            LOGGER.fine("Received trade data.");
             new Thread(() -> update_ticker(data)).start();
-        else if (event.equalsIgnoreCase("bts:error"))
+        } else if (event.equalsIgnoreCase("bts:error"))
             LOGGER.warning(response.get("data").getAsString());
         else if (event.equalsIgnoreCase("bts:request_reconnect"))
             this.connect();
@@ -126,7 +127,6 @@ public class WsImp {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData()  {
-        LOGGER.fine("Waiting for data.");
         while (this.lastPrice < 0.0) {
             try {
                 Thread.sleep(10);
@@ -134,7 +134,6 @@ public class WsImp {
                 // Do nothing
             }
         }
-        LOGGER.fine("Data received.");
     }
 
     /**
@@ -144,7 +143,12 @@ public class WsImp {
      */
     @OnError
     public void onError(Throwable throwable) {
-        LOGGER.warning(throwable.getLocalizedMessage());
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            // Do nothing
+        }
+        LOGGER.warning(throwable.toString());
     }
 
     /**

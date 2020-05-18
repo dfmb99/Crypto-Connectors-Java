@@ -42,10 +42,10 @@ public class WsImp {
     private static final int MAX_LATENCY = 15000;
     private final static int RETRY_PERIOD = 3000;
 
-    private WebSocketContainer container;
+    private final WebSocketContainer container;
     private HeartbeatThread heartbeatThread;
     private Session userSession;
-    private String symbol;
+    private final String symbol;
     // last price of ticker
     private float lastPrice;
     // last sequence number of ticker
@@ -122,6 +122,7 @@ public class WsImp {
         String type = response.get("type").getAsString();
 
         if (type.equalsIgnoreCase("update") && response.get("events").getAsJsonArray().size() > 0) {
+            LOGGER.info("Received ticker update.");
             // checks latency on update
             check_latency(response.get("timestampms").getAsLong());
             //checks seqNum
@@ -158,7 +159,6 @@ public class WsImp {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        LOGGER.fine("Waiting for data.");
         while (this.lastPrice < 0.0) {
             try {
                 Thread.sleep(10);
@@ -166,13 +166,12 @@ public class WsImp {
                 // Do nothing
             }
         }
-        LOGGER.fine("Data received.");
     }
 
     /**
      * Checks latency on a websocket update
      *
-     * @param updateTime
+     * @param updateTime - last updateTime
      */
     private void check_latency(long updateTime) {
         long latency = System.currentTimeMillis() - updateTime;
@@ -199,14 +198,5 @@ public class WsImp {
             // Do nothing
         }
         LOGGER.warning(throwable.toString());
-    }
-
-    /**
-     * Send a message.
-     *
-     * @param message - message to be sent
-     */
-    protected void sendMessage(String message) {
-        this.userSession.getAsyncRemote().sendText(message);
     }
 }

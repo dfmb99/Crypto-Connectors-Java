@@ -10,19 +10,19 @@ public class WsImp {
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static int MAX_LATENCY = 15000;
 
-    private String symbol;
+    private final String symbol;
     private float lastPrice;
     private BittrexExchange bittrexExchange;
 
     /**
      * Bittrex web socket implementation by https://github.com/CCob/bittrex4j
      *
-     * @param symbol
+     * @param symbol - symbol of ticker
      */
     public WsImp(String symbol) {
         this.symbol = symbol;
         this.lastPrice = -1f;
-        new Thread(() -> this.connect()).start();
+        new Thread(this::connect).start();
         this.waitForData();
     }
 
@@ -32,14 +32,13 @@ public class WsImp {
             LOGGER.info("Connected to bittrex websocket.");
 
             bittrexExchange.onUpdateExchangeState(exchangeState -> {
+                LOGGER.fine("Received ticker data.");
                 Fill fill = exchangeState.getFills()[0];
                 check_latency(fill.getTimeStamp().toEpochSecond() * 1000);
                 this.lastPrice = (float) fill.getPrice();
             });
 
-            bittrexExchange.connectToWebSocket(() -> {
-                bittrexExchange.subscribeToExchangeDeltas(this.symbol, null);
-            });
+            bittrexExchange.connectToWebSocket(() -> bittrexExchange.subscribeToExchangeDeltas(this.symbol, null));
 
             System.in.read();
         } catch (IOException e) {
@@ -64,7 +63,6 @@ public class WsImp {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        LOGGER.fine("Waiting for data.");
         while (this.lastPrice < 0.0) {
             try {
                 Thread.sleep(10);
@@ -72,7 +70,6 @@ public class WsImp {
                 // Do nothing
             }
         }
-        LOGGER.fine("Data received.");
     }
 
     public float get_last_price() {

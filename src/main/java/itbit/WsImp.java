@@ -2,8 +2,6 @@ package itbit;
 
 import bitmex.rest.Rest;
 import com.google.gson.JsonParser;
-import exceptions.ApiConnectionException;
-import exceptions.ApiErrorException;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 
@@ -14,13 +12,13 @@ import javax.ws.rs.client.Invocation;
 import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import java.util.Objects;
 import java.util.logging.Logger;
 
 public class WsImp {
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static String URL = "https://api.itbit.com/v1/";
     private final String symbol;
-    private Client client;
     private float lastPrice;
 
     // connection constants
@@ -31,17 +29,13 @@ public class WsImp {
     public WsImp(String symbol) {
         this.symbol = symbol;
         this.lastPrice = -1f;
-        new Thread(() -> poll_server()).start();
+        new Thread(this::poll_server).start();
         this.waitForData();
     }
 
     private void poll_server() {
         while (true) {
-            try {
-                this.lastPrice = JsonParser.parseString(get_ticker_call()).getAsJsonObject().get("lastPrice").getAsFloat();
-            } catch (ApiErrorException e) {
-                // Do nothing
-            }
+            this.lastPrice = JsonParser.parseString(Objects.requireNonNull(get_ticker_call())).getAsJsonObject().get("lastPrice").getAsFloat();
         }
     }
 
@@ -50,8 +44,8 @@ public class WsImp {
      *
      * @return String - response
      */
-    private String get_ticker_call() throws ApiErrorException {
-        this.client = client_configuration();
+    private String get_ticker_call() {
+        Client client = client_configuration();
 
         WebTarget target = client.target(URL).path(String.format("markets/%s/ticker", this.symbol));
 
@@ -65,13 +59,9 @@ public class WsImp {
             try {
                 Response r = httpReq.get();
 
-                if (r == null) {
-                    LOGGER.severe("No response from server.");
-                    throw new ApiConnectionException();
-                }
-
                 int status = r.getStatus();
                 success = true;
+                LOGGER.fine("Received http response for ticker call.");
 
                 if (status == Response.Status.OK.getStatusCode() && r.hasEntity())
                     return r.readEntity(String.class);
@@ -93,12 +83,10 @@ public class WsImp {
                     //Nothing to be done here, if this happens we will just retry sooner.
                 }
                 LOGGER.info("Retrying to execute request.");
-            } catch (ApiConnectionException e) { //Unhandled error after api request
-                LOGGER.severe(e.getMessage());
-                System.exit(1);
             }
         }
-        throw new ApiErrorException("Connection Error.");
+        LOGGER.severe("Connection error.");
+        return null;
     }
 
     /**
@@ -130,7 +118,6 @@ public class WsImp {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        LOGGER.fine("Waiting for data.");
         while (this.lastPrice < 0.0) {
             try {
                 Thread.sleep(10);
@@ -138,7 +125,6 @@ public class WsImp {
                 // Do nothing
             }
         }
-        LOGGER.fine("Data received.");
     }
 
 }

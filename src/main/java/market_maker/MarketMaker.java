@@ -318,8 +318,6 @@ class MarketMakerManager {
         }
         return (float) (MathCustom.calculateSD(closeArr) *  Math.sqrt(closeArr.length));
     }
-
-
 }
 
 /**
