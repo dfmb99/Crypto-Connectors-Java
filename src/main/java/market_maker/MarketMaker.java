@@ -27,7 +27,6 @@ class ExchangeInterface {
 
     private RestImp mexRest;
     private WsImp mexWs;
-    private String symbol;
     private String orderIDPrefix;
     // class that deals with ticker data on other exchanges
     protected SpotPricesTracker spotPrices;
@@ -44,12 +43,11 @@ class ExchangeInterface {
     // tickSize of contract
     private float tickSize;
 
-    public ExchangeInterface(String symbol) {
-        this.symbol = symbol;
+    public ExchangeInterface() {
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
-        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.symbol);
-        this.spotPrices = new SpotPricesTracker(symbol);
+        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, Settings.SYMBOL);
+        this.spotPrices = new SpotPricesTracker(Settings.SYMBOL);
         this.indexThread = null;
 
         // Initial data
@@ -323,11 +321,9 @@ class ExchangeInterface {
 class MarketMakerManager {
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
     private final ExchangeInterface e;
-    private String symbol;
 
-    public MarketMakerManager(String symbol) {
-        e = new ExchangeInterface(symbol);
-        this.symbol = symbol;
+    public MarketMakerManager() {
+        e = new ExchangeInterface();
         run_loop();
     }
 
@@ -342,7 +338,7 @@ class MarketMakerManager {
         JsonObject params = new JsonObject();
         String execInst = Settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
 
-        params.addProperty("symbol", this.symbol);
+        params.addProperty("symbol", Settings.SYMBOL);
         params.addProperty("orderQty", orderQty);
         params.addProperty("price", price);
         params.addProperty("ordType", "Limit");
@@ -359,7 +355,7 @@ class MarketMakerManager {
      */
     public JsonObject prepare_market_order(long orderQty) {
         JsonObject params = new JsonObject();
-        params.addProperty("symbol", this.symbol);
+        params.addProperty("symbol", Settings.SYMBOL);
         params.addProperty("orderQty", orderQty);
         params.addProperty("ordType", "Market");
 
@@ -637,9 +633,9 @@ public class MarketMaker {
 
     private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
-        MarketMakerManager m = new MarketMakerManager(Settings.SYMBOL);
+        MarketMakerManager m = new MarketMakerManager();
 
     }
 
