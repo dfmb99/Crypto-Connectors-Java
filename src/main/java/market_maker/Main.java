@@ -32,8 +32,9 @@ public class Main {
     public static void main(String[] args) {
         //float[] numArray = { 1,6,2,234,54,63,13,75};
         //float SD = calculateSD(numArray);
-        float n = 0.00000000012f;
     }
+
+
 
     public static float calculateSD(float numArray[])
     {

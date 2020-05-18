@@ -219,6 +219,14 @@ class ExchangeInterface {
     }
 
     /**
+     * Returns lowest open buy order price
+     * @return price
+     */
+    public float get_highest_buy_price() {
+        return get_highest_buy().get("price").getAsFloat();
+    }
+
+    /**
      * Returns lowest open sell order
      *
      * @return order
@@ -231,6 +239,78 @@ class ExchangeInterface {
                 lowestSell = currOrd.getAsJsonObject();
         }
         return lowestSell;
+    }
+
+
+    /**
+     * Returns lowest open sell order price
+     * @return price
+     */
+    public float get_lowest_sell_price() {
+        return get_lowest_sell().get("price").getAsFloat();
+    }
+
+    /**
+     * Places an order
+     *
+     * @param order - order to be placed
+     * @return JsonObject - response of request
+     */
+    public JsonObject place_order(JsonObject order) {
+        return this.mexRest.post_order(order);
+    }
+
+    /**
+     * Places multiple orders as bulk
+     *
+     * @param orders - orders to be placed
+     * @return JsonObject - response of request
+     */
+    public JsonArray place_order_bulk(JsonArray orders) {
+        JsonObject params = new JsonObject();
+        params.addProperty("orders", String.valueOf(orders));
+        return this.mexRest.post_order_bulk(params);
+    }
+
+    /**
+     * Amends an order
+     *
+     * @param order - order to be amended
+     * @return JsonObject - response of request
+     */
+    public JsonObject amend_order(JsonObject order) {
+        return this.mexRest.put_order(order);
+    }
+
+    /**
+     * Amends multiple orders as bulk
+     *
+     * @param orders - orders to be amended
+     * @return JsonObject - response of request
+     */
+    public JsonArray amend_order_bulk(JsonArray orders) {
+        JsonObject params = new JsonObject();
+        params.addProperty("orders", String.valueOf(orders));
+        return this.mexRest.put_order_bulk(params);
+    }
+
+    /**
+     * Returns trade bucketed data 1minute
+     * @return JSONArray
+     */
+    public JsonArray get_tradeBin1m() {
+        return this.mexWs.get_trabeBin1m();
+    }
+}
+
+class MarketMakerManager {
+    private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
+    private ExchangeInterface e;
+    private String symbol;
+
+    public MarketMakerManager(String symbol) {
+        e = new ExchangeInterface(symbol);
+        this.symbol = symbol;
     }
 
     /**
@@ -269,44 +349,6 @@ class ExchangeInterface {
     }
 
     /**
-     * Places an order
-     *
-     * @param order - order to be placed
-     * @return JsonObject - response of request
-     */
-    public JsonObject place_order(JsonObject order) {
-        return this.mexRest.post_order(order);
-    }
-
-    /**
-     * Places multiple orders as bulk
-     *
-     * @param orders - orders to be placed
-     * @return JsonObject - response of request
-     */
-    public JsonArray place_order_bulk(JsonArray orders) {
-        JsonObject params = new JsonObject();
-        params.addProperty("orders", String.valueOf(orders));
-        return this.mexRest.post_order_bulk(params);
-    }
-
-    /**
-     * Returns trade bucketed data 1minute
-     * @return JSONArray
-     */
-    public JsonArray get_tradeBin1m() {
-        return this.mexWs.get_trabeBin1m();
-    }
-}
-
-class MarketMakerManager {
-    private ExchangeInterface e;
-
-    public MarketMakerManager(String symbol) {
-        e = new ExchangeInterface(symbol);
-    }
-
-    /**
      * Returns volume index of current contract
      * @return volIndex as float
      */
@@ -317,6 +359,87 @@ class MarketMakerManager {
             closeArr[i-1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat()/ arr.get(i-1).getAsJsonObject().get("close").getAsFloat());
         }
         return (float) (MathCustom.calculateSD(closeArr) *  Math.sqrt(closeArr.length));
+    }
+
+    /**
+     * Checks what orders are opened and return 0 if both sell and buy are open, -1 if only sell is open, 1 if only buy is open, else neither are placed
+     * @return index of open orders
+     */
+    private int open_orders_index() {
+        if( e.get_open_buy_orders().size() > 0 && e.get_open_sell_orders().size() > 0 )
+            return 0;
+        else if( e.get_open_buy_orders().size() > 0 )
+            return 1;
+        else if( e.get_open_sell_orders().size() > 0 )
+            return -1;
+        else
+            return 2;
+    }
+
+    /**
+     * Calculates skew depending on current position size
+     * @return skew
+     */
+    private float calculate_position_skew() {
+        float skew = 0;
+        long currPos = e.get_position();
+
+        if( currPos > 0)
+            skew = (float) (( -1 + Math.pow(2.4 , Math.abs( currPos ) / Settings.ORDER_SIZE / 4 )) * get_volume_index() * 0.8 * -1 );
+        else if( currPos < 0)
+            skew = (float) (( -1 + Math.pow(2.4 , Math.abs( currPos ) / Settings.ORDER_SIZE / 4 )) * get_volume_index() * 0.8 );
+
+        return skew;
+    }
+
+    private float calculate_new_bid_price() {
+        float quoteMidPrice = e.get_mark_price() * ( 1 + calculate_position_skew());
+        return quoteMidPrice * ( 1 - get_volume_index());
+    }
+
+    private float calculate_new_ask_price() {
+        float quoteMidPrice = e.get_mark_price() * ( 1 + calculate_position_skew());
+        return quoteMidPrice * ( 1 + get_volume_index());
+    }
+
+    private void check_current_spread() {
+        float fairPrice = e.get_mark_price();
+
+        // big volatility changes can cause we quoting a spread too wide, so we amend orders to tight the spread
+        if( (get_spread(calculate_new_bid_price(), fairPrice) > get_spread(e.get_highest_buy_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
+                (get_spread(calculate_new_ask_price(), fairPrice) > get_spread(e.get_lowest_sell_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) ) {
+            LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %d", get_volume_index()));
+            amend_orders();
+        }
+
+    }
+
+    private void amend_orders() {
+
+    }
+
+    /**
+     * Returns the spread between two prices
+     * @param p1 - price 1
+     * @param p2 - price 2
+     * @return spread
+     */
+    private float get_spread(float p1, float p2) {
+        return Math.abs( p1 / p2 ) / p2;
+    }
+
+    private void converge_orders() {
+        int index = open_orders_index();
+
+
+    }
+
+    private void sanity_check() {
+
+    }
+
+    private void run_loop() {
+
     }
 }
 
