@@ -164,10 +164,10 @@ public class RestImp implements Rest {
             System.exit(1);
         } else if (status == 404) {
             LOGGER.warning(errLog);
+            sleep(3000); //waits 3000ms until attempting again.
             //Order not found
             if (verb.equalsIgnoreCase("DELETE"))
                 return errorObj.toString();
-            sleep(3000); //waits 3000ms until attempting again.
             return api_call(verb, endpoint, data);
         } else if (status == 429) {
             LOGGER.warning(errLog);

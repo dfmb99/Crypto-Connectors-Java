@@ -65,7 +65,7 @@ class ExchangeInterface {
 
     protected void get_instrument_composite_index() {
         // Interrupts index thread if thread exists
-        if(this.indexThread != null && !this.indexThread.isInterrupted())
+        if (this.indexThread != null && !this.indexThread.isInterrupted())
             this.indexThread.interrupt();
 
         this.nextIndexUpdate = TimeStamp.getTimestamp(this.mexRest.get_instrument("XBT:quarterly").get(0).getAsJsonObject().get("expiry").getAsString());
@@ -73,10 +73,10 @@ class ExchangeInterface {
         JsonArray compIndRes = mexRest.get_instrument_compositeIndex(underlyingSymbol);
         List<String> exchangeRefs = new ArrayList<>();
         this.weights = new CopyOnWriteArrayList<>();
-        for(JsonElement elem: compIndRes) {
+        for (JsonElement elem : compIndRes) {
             JsonObject obj = elem.getAsJsonObject();
             String reference = obj.get("reference").getAsString();
-            if(reference.equalsIgnoreCase("BMI")) break;
+            if (reference.equalsIgnoreCase("BMI")) break;
             float weight = obj.get("weight").getAsFloat();
             exchangeRefs.add(reference);
             this.weights.add(weight);
@@ -136,20 +136,20 @@ class ExchangeInterface {
 
         float indexPrice = 0f;
         float[] lastPrices = this.spotPrices.get_last_price();
-        for(int i = 0; i < lastPrices.length; i++) {
+        for (int i = 0; i < lastPrices.length; i++) {
             indexPrice += lastPrices[i] * (float) this.weights.get(i);
         }
 
         JsonObject instrument = this.mexWs.get_instrument().get(0).getAsJsonObject();
-        if( this.expiry == null ) {
+        if (this.expiry == null) {
             float fundingRate = instrument.get("fundingRate").getAsFloat();
             long fundingTimestamp = TimeStamp.getTimestamp(instrument.get("fundingTimestamp").getAsString());
-            float fundingBasis = fundingRate * ( ((float) fundingTimestamp - (float) System.currentTimeMillis()) / (float) FUNDING_INTERVAL);
-            return indexPrice * ( 1.0f + fundingBasis);
-        }else {
+            float fundingBasis = fundingRate * (((float) fundingTimestamp - (float) System.currentTimeMillis()) / (float) FUNDING_INTERVAL);
+            return indexPrice * (1.0f + fundingBasis);
+        } else {
             float fairBasis = instrument.get("fairBasisRate").getAsFloat();
             long expiryTimestamp = TimeStamp.getTimestamp(this.expiry);
-            float fairValue = indexPrice * fairBasis * ( ((float) expiryTimestamp - (float) System.currentTimeMillis()) / (float) DAY_MS / (float) DAYS_ANNUM);
+            float fairValue = indexPrice * fairBasis * (((float) expiryTimestamp - (float) System.currentTimeMillis()) / (float) DAY_MS / (float) DAYS_ANNUM);
             return indexPrice + fairValue;
         }
     }
@@ -203,6 +203,27 @@ class ExchangeInterface {
         return (float) margin.get("availableMargin").getAsLong() / margin.get("marginBalance").getAsLong();
     }
 
+
+    /**
+     * Returns price of an order
+     *
+     * @param order - JsonObject
+     * @return price
+     */
+    public float get_order_price(JsonObject order) {
+        return order.get("price").getAsFloat();
+    }
+
+    /**
+     * Returns lowest open buy order orderID
+     *
+     * @param order - JsonObject
+     * @return orderID
+     */
+    public String get_orderID(JsonObject order) {
+        return order.get("orderID").getAsString();
+    }
+
     /**
      * Returns highest open buy order
      *
@@ -219,14 +240,6 @@ class ExchangeInterface {
     }
 
     /**
-     * Returns lowest open buy order price
-     * @return price
-     */
-    public float get_highest_buy_price() {
-        return get_highest_buy().get("price").getAsFloat();
-    }
-
-    /**
      * Returns lowest open sell order
      *
      * @return order
@@ -239,15 +252,6 @@ class ExchangeInterface {
                 lowestSell = currOrd.getAsJsonObject();
         }
         return lowestSell;
-    }
-
-
-    /**
-     * Returns lowest open sell order price
-     * @return price
-     */
-    public float get_lowest_sell_price() {
-        return get_lowest_sell().get("price").getAsFloat();
     }
 
     /**
@@ -296,6 +300,7 @@ class ExchangeInterface {
 
     /**
      * Returns trade bucketed data 1minute
+     *
      * @return JSONArray
      */
     public JsonArray get_tradeBin1m() {
@@ -350,87 +355,118 @@ class MarketMakerManager {
 
     /**
      * Returns volume index of current contract
+     *
      * @return volIndex as float
      */
     private float get_volume_index() {
-        JsonArray arr =  e.get_tradeBin1m();
-        float[] closeArr = new float[arr.size()-1];
-        for(int i = 1; i < arr.size(); i++) {
-            closeArr[i-1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat()/ arr.get(i-1).getAsJsonObject().get("close").getAsFloat());
+        JsonArray arr = e.get_tradeBin1m();
+        float[] closeArr = new float[arr.size() - 1];
+        for (int i = 1; i < arr.size(); i++) {
+            closeArr[i - 1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat() / arr.get(i - 1).getAsJsonObject().get("close").getAsFloat());
         }
-        return (float) (MathCustom.calculateSD(closeArr) *  Math.sqrt(closeArr.length));
-    }
-
-    /**
-     * Checks what orders are opened and return 0 if both sell and buy are open, -1 if only sell is open, 1 if only buy is open, else neither are placed
-     * @return index of open orders
-     */
-    private int open_orders_index() {
-        if( e.get_open_buy_orders().size() > 0 && e.get_open_sell_orders().size() > 0 )
-            return 0;
-        else if( e.get_open_buy_orders().size() > 0 )
-            return 1;
-        else if( e.get_open_sell_orders().size() > 0 )
-            return -1;
-        else
-            return 2;
+        return (float) (MathCustom.calculateSD(closeArr) * Math.sqrt(closeArr.length));
     }
 
     /**
      * Calculates skew depending on current position size
+     *
      * @return skew
      */
-    private float calculate_position_skew() {
+    private float get_position_skew() {
         float skew = 0;
         long currPos = e.get_position();
 
-        if( currPos > 0)
-            skew = (float) (( -1 + Math.pow(2.4 , Math.abs( currPos ) / Settings.ORDER_SIZE / 4 )) * get_volume_index() * 0.8 * -1 );
-        else if( currPos < 0)
-            skew = (float) (( -1 + Math.pow(2.4 , Math.abs( currPos ) / Settings.ORDER_SIZE / 4 )) * get_volume_index() * 0.8 );
+        if (currPos > 0)
+            skew = (float) ((-1 + Math.pow(2.4, Math.abs(currPos) / Settings.ORDER_SIZE / 4)) * get_volume_index() * 0.8 * -1);
+        else if (currPos < 0)
+            skew = (float) ((-1 + Math.pow(2.4, Math.abs(currPos) / Settings.ORDER_SIZE / 4)) * get_volume_index() * 0.8);
 
         return skew;
     }
 
-    private float calculate_new_bid_price() {
-        float quoteMidPrice = e.get_mark_price() * ( 1 + calculate_position_skew());
-        return quoteMidPrice * ( 1 - get_volume_index());
+    private float get_new_bid_price() {
+        float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
+        return quoteMidPrice * (1 - get_volume_index());
     }
 
-    private float calculate_new_ask_price() {
-        float quoteMidPrice = e.get_mark_price() * ( 1 + calculate_position_skew());
-        return quoteMidPrice * ( 1 + get_volume_index());
+    private float get_new_ask_price() {
+        float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
+        return quoteMidPrice * (1 + get_volume_index());
     }
 
     private void check_current_spread() {
         float fairPrice = e.get_mark_price();
+        JsonObject buy = e.get_highest_buy();
+        JsonObject sell = e.get_lowest_sell();
 
         // big volatility changes can cause we quoting a spread too wide, so we amend orders to tight the spread
-        if( (get_spread(calculate_new_bid_price(), fairPrice) > get_spread(e.get_highest_buy_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
-                (get_spread(calculate_new_ask_price(), fairPrice) > get_spread(e.get_lowest_sell_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) ) {
+        if ((buy.keySet().size() > 0 && sell.keySet().size() > 0) && (get_spread(get_new_bid_price(), fairPrice) > get_spread(e.get_order_price(buy), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
+                (get_spread(get_new_ask_price(), fairPrice) > get_spread(e.get_order_price(sell), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
             LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %d", get_volume_index()));
             amend_orders();
         }
-
     }
 
+    /**
+     * Amends order pair that is closer to midPrice with current position skew, if orders exist, otherwise does nothing
+     */
     private void amend_orders() {
+        JsonArray orders = new JsonArray();
+        JsonObject buy = e.get_highest_buy();
+        JsonObject sell = e.get_lowest_sell();
 
+        if (buy.keySet().size() > 0) {
+            JsonObject newBuy = new JsonObject();
+            newBuy.addProperty("orderID", buy.get("orderID").getAsString());
+            newBuy.addProperty("price", get_new_bid_price());
+            orders.add(newBuy);
+            LOGGER.info(String.format("Amending %s order from %d to %d", buy.get("side").getAsString(), buy.get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
+        }
+        if (sell.keySet().size() > 0) {
+            JsonObject newSell = new JsonObject();
+            newSell.addProperty("orderID", sell.get("orderID").getAsString());
+            newSell.addProperty("price", get_new_ask_price());
+            orders.add(newSell);
+            LOGGER.info(String.format("Amending %s order from %d to %d", sell.get("side").getAsString(), sell.get("price").getAsFloat(), newSell.get("price").getAsFloat()));
+        }
+
+        if (!Settings.DRY_RUN && orders.size() > 0)
+            e.amend_order_bulk(orders);
     }
 
     /**
      * Returns the spread between two prices
+     *
      * @param p1 - price 1
      * @param p2 - price 2
      * @return spread
      */
     private float get_spread(float p1, float p2) {
-        return Math.abs( p1 / p2 ) / p2;
+        return Math.abs(p1 / p2) / p2;
     }
 
+    /**
+     * Checks current open orders, and replaces/places new orders if any are missing
+     */
     private void converge_orders() {
-        int index = open_orders_index();
+        JsonArray orders = new JsonArray();
+        JsonArray buys = e.get_open_buy_orders();
+        JsonArray sells = e.get_open_sell_orders();
 
+        if (buys.size() < 1) {
+            JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, get_new_bid_price());
+            orders.add(newBuy);
+            LOGGER.info(String.format("Creating buy order of %d contracts at %d", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
+        }
+
+        if (sells.size() < 1) {
+            JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, get_new_ask_price());
+            orders.add(newSell);
+            LOGGER.info(String.format("Creating sell order of %d contracts at %d", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
+        }
+
+        if (!Settings.DRY_RUN && orders.size() > 0)
+            e.place_order_bulk(orders);
 
     }
 
@@ -439,7 +475,10 @@ class MarketMakerManager {
     }
 
     private void run_loop() {
-
+        while (true) {
+            converge_orders();
+            check_current_spread();
+        }
     }
 }
 
@@ -468,7 +507,7 @@ class IndexCheckThread extends Thread {
         remWeights = new float[e.weights.size()];
         timeStamps = new long[e.weights.size()];
         long now = System.currentTimeMillis();
-        for(int i = 0; i < origWeights.length; i++) {
+        for (int i = 0; i < origWeights.length; i++) {
             origWeights[i] = e.weights.get(i);
             timeStamps[i] = now;
             remWeights[i] = 0.0f;
@@ -490,29 +529,29 @@ class IndexCheckThread extends Thread {
             newData = e.spotPrices.get_last_price();
 
             // Indexes weights get updated after quarterly futures expiry + 5 seconds
-            if(System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
+            if (System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
                 LOGGER.info("Updating index weights.");
                 this.interrupt();
                 e.get_instrument_composite_index();
             }
 
-            for(i = 0; i < currPrices.length; i++) {
+            for (i = 0; i < currPrices.length; i++) {
                 // if data received is different than data we have, update timestamp array
-                if(newData[i] != currPrices[i]) {
+                if (newData[i] != currPrices[i]) {
                     timeStamps[i] = now;
-                    if(e.weights.get(i) == 0.0f) {
-                        float v =  origWeights[i] / (float) activeIndexes;
+                    if (e.weights.get(i) == 0.0f) {
+                        float v = origWeights[i] / (float) activeIndexes;
                         LOGGER.warning(String.format("Invalid exchange updated price, removing from other valid exchanges: %d", v));
-                        for(int j = 0; j < currPrices.length; j++) {
+                        for (int j = 0; j < currPrices.length; j++) {
                             float k = e.weights.get(j);
-                            if( k > 0.0f)
+                            if (k > 0.0f)
                                 e.weights.set(j, k - v);
                         }
                         e.weights.set(i, origWeights[i]);
                     }
                 }
                 //check if index needs to be removed
-                if(System.currentTimeMillis() - timeStamps[i] > 900000) {
+                if (System.currentTimeMillis() - timeStamps[i] > 900000) {
                     LOGGER.warning(String.format("Removing exchange at index %d due to not receiving price updates for 15 minutes.", i));
                     activeIndexes--;
                     //removed weight needs to be distributed by the rest
@@ -521,12 +560,12 @@ class IndexCheckThread extends Thread {
                     e.weights.set(i, 0.0f);
                 }
             }
-            if(remW > 0.0f) {
+            if (remW > 0.0f) {
                 addedWeights = remW / (float) activeIndexes;
                 LOGGER.warning(String.format("Adding to every other valid exchange: %d", addedWeights));
-                for(i = 0; i < currPrices.length; i++){
+                for (i = 0; i < currPrices.length; i++) {
                     float v = e.weights.get(i);
-                    if( v > 0.0f)
+                    if (v > 0.0f)
                         e.weights.set(i, v + addedWeights);
                 }
             }

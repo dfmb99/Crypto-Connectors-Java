@@ -2,6 +2,7 @@ package market_maker;
 
 import bitmex.ws.WsImp;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -30,30 +31,9 @@ public class Main {
 
     }
     public static void main(String[] args) {
-        //float[] numArray = { 1,6,2,234,54,63,13,75};
-        //float SD = calculateSD(numArray);
+        JsonObject obj = new JsonObject();
+        System.out.println(obj.keySet().size());
     }
-
-
-
-    public static float calculateSD(float numArray[])
-    {
-        double sum = 0.0, standardDeviation = 0.0;
-        int length = numArray.length;
-
-        for(double num : numArray) {
-            sum += num;
-        }
-
-        double mean = sum/length;
-
-        for(double num: numArray) {
-            standardDeviation += Math.pow(num - mean, 2);
-        }
-
-        return (float) Math.sqrt(standardDeviation/ (length-1) );
-    }
-
 
 }
 
