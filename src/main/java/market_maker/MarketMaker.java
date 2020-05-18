@@ -65,6 +65,7 @@ class ExchangeInterface {
 
     /**
      * Returns tick size of contract
+     *
      * @return tickSize as float
      */
     protected float get_tickSize() {
@@ -398,15 +399,17 @@ class MarketMakerManager {
 
     /**
      * Gets new bid price given the current position size
+     *
      * @return price
      */
     private float get_new_bid_price() {
         float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
-        return (float) MathCustom.roundToFraction(quoteMidPrice * (1 - get_volume_index()) , e.get_tickSize());
+        return (float) MathCustom.roundToFraction(quoteMidPrice * (1 - get_volume_index()), e.get_tickSize());
     }
 
     /**
      * Gets new ask price given the current position size
+     *
      * @return price
      */
     private float get_new_ask_price() {
@@ -423,9 +426,9 @@ class MarketMakerManager {
         JsonObject sell = e.get_lowest_sell();
 
         // big volatility changes can cause we quoting a spread too wide, so we amend orders to tight the spread
-        if ((buy.keySet().size() > 0 && sell.keySet().size() > 0) && (get_spread(get_new_bid_price(), fairPrice) > get_spread(e.get_order_price(buy), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
-                (get_spread(get_new_ask_price(), fairPrice) > get_spread(e.get_order_price(sell), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
-            LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %d", get_volume_index()));
+        if ((buy.keySet().size() > 0 && sell.keySet().size() > 0) && ( get_spread(e.get_order_price(buy), fairPrice) > get_spread(get_new_bid_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
+                ( get_spread(e.get_order_price(sell), fairPrice) > get_spread(get_new_ask_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
+            LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %f", get_volume_index()));
             amend_orders();
         }
     }
@@ -465,7 +468,7 @@ class MarketMakerManager {
      * @return spread
      */
     private float get_spread(float p1, float p2) {
-        return Math.abs(p1 / p2) / p2;
+        return Math.abs(p1 - p2) / p2;
     }
 
     /**
@@ -473,19 +476,41 @@ class MarketMakerManager {
      */
     private void converge_orders() {
         JsonArray orders = new JsonArray();
-        JsonArray buys = e.get_open_buy_orders();
-        JsonArray sells = e.get_open_sell_orders();
+        JsonObject buy = e.get_highest_buy();
+        JsonObject sell = e.get_lowest_sell();
 
-        if (buys.size() < 1) {
+        // place new buy order, if no buy order is opened
+        if (buy.keySet().size() < 1) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, get_new_bid_price());
             orders.add(newBuy);
             LOGGER.info(String.format("Creating buy order of %d contracts at %f", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
+
+            // amends current sell order if there is a sell order opened
+            if (sell.keySet().size() > 0) {
+                JsonObject newSell = new JsonObject();
+                newSell.addProperty("orderID", sell.get("orderID").getAsString());
+                newSell.addProperty("price", get_new_ask_price());
+                LOGGER.info(String.format("Amending %s order from %f to %f", sell.get("side").getAsString(), sell.get("price").getAsFloat(), newSell.get("price").getAsFloat()));
+                if (!Settings.DRY_RUN)
+                    e.amend_order(newSell);
+            }
         }
 
-        if (sells.size() < 1) {
+        // place new sell order, if no sell order is opened
+        if (sell.keySet().size() < 1) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, get_new_ask_price());
             orders.add(newSell);
             LOGGER.info(String.format("Creating sell order of %d contracts at %f", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
+
+            // amends current buy order if there is a buy order opened
+            if (buy.keySet().size() > 0) {
+                JsonObject newBuy = new JsonObject();
+                newBuy.addProperty("orderID", buy.get("orderID").getAsString());
+                newBuy.addProperty("price", get_new_bid_price());
+                LOGGER.info(String.format("Amending %s order from %f to %f", buy.get("side").getAsString(), buy.get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
+                if (!Settings.DRY_RUN)
+                    e.amend_order(newBuy);
+            }
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0)
@@ -499,9 +524,10 @@ class MarketMakerManager {
 
     private void run_loop() {
         while (true) {
-            converge_orders();
-            check_current_spread();
             try {
+                converge_orders();
+                Thread.sleep(100);
+                check_current_spread();
                 Thread.sleep(100);
             } catch (InterruptedException interruptedException) {
                 // Do nothing

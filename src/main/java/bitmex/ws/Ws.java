@@ -12,7 +12,7 @@ public interface Ws {
     String WS_MAINNET = "wss://www.bitmex.com/realtime";
 
     int LIQ_MAX_LEN = 50;
-    int TRADE_BIN_MAX_LEN = Settings.TRADE_BIN_MAX_LEN;
+    int TRADE_BIN_MAX_LEN = Settings.VOLUME_INDEX_SNAPS;
     int EXEC_MAX_LEN = 100;
     int RETRY_PERIOD = 3000;
     int MAX_LATENCY = 15000;

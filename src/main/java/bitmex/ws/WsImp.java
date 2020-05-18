@@ -470,6 +470,8 @@ public class WsImp implements Ws {
                     // if same orderID
                     if (orderIDRec.equals(orderIDOrig)) {
                         orderMatchFound = true;
+                        // remove old data object
+                        orderData.remove(elemOrig);
                         // if order still active we update, otherwise we delete the order
                         if (ordStatus == null || ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")) {
                             // iterate data on object received and updates local memory
@@ -477,8 +479,8 @@ public class WsImp implements Ws {
                                 if (!objRec.get(key).isJsonNull())
                                     elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
                             }
-                        } else
-                            orderData.remove(elemOrig);
+                            orderData.add(elemOrig);
+                        }
                         break;
                     }
                 }

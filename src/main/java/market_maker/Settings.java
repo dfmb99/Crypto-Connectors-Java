@@ -9,7 +9,7 @@ public class Settings {
 
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
 
-    public static final int TRADE_BIN_MAX_LEN = 40;
+    public static final int VOLUME_INDEX_SNAPS = 40;
 
     public static final boolean POST_ONLY = false;
 
