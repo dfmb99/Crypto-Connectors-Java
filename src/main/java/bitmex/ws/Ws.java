@@ -18,6 +18,12 @@ public interface Ws {
     int MAX_LATENCY = 15000;
 
     /**
+     * Returns true if websocket connection is open, false otherwise
+     * @return true if websocket connection is open, false otherwise
+     */
+    boolean isSessionOpen();
+
+    /**
      * Gets size of level2 orderBook row with price == 'price'
      *
      * @param price - price of row to query

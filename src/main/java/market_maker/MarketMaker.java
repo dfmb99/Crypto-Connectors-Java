@@ -174,13 +174,27 @@ class ExchangeInterface {
     }
 
     /**
+     * Http request to get open orders
+     *
+     * @return JsonArray of response
+     */
+    public JsonArray rest_get_open_orders() {
+        JsonObject params = new JsonObject();
+        params.addProperty("symbol", Settings.SYMBOL);
+        params.addProperty("filter", "{\"ordStatus.isTerminated\": false}");
+        params.addProperty("count", 100);
+        params.addProperty("reverse", true);
+        return this.mexRest.get_order(params);
+    }
+
+    /**
      * Get open buy orders
      *
      * @return open buy orders
      */
     public JsonArray get_open_buy_orders() {
         JsonArray ret = new JsonArray();
-        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        JsonArray openOrders = (this.mexWs.isSessionOpen()) ? this.mexWs.get_openOrders(this.orderIDPrefix) : rest_get_open_orders();
         for (JsonElement elem : openOrders) {
             if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
                 ret.add(elem);
@@ -195,7 +209,7 @@ class ExchangeInterface {
      */
     public JsonArray get_open_sell_orders() {
         JsonArray ret = new JsonArray();
-        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        JsonArray openOrders = (this.mexWs.isSessionOpen()) ? this.mexWs.get_openOrders(this.orderIDPrefix) : rest_get_open_orders();
         for (JsonElement elem : openOrders) {
             if (elem.getAsJsonObject().get("side").getAsString().equals("Sell"))
                 ret.add(elem);
@@ -522,9 +536,9 @@ class MarketMakerManager {
         while (true) {
             try {
                 converge_orders();
-                Thread.sleep(100);
+                Thread.sleep(Settings.LOOP_INTERVAL);
                 check_current_spread();
-                Thread.sleep(100);
+                Thread.sleep(Settings.LOOP_INTERVAL);
             } catch (InterruptedException interruptedException) {
                 // Do nothing
             }
@@ -612,7 +626,7 @@ class IndexCheckThread extends Thread {
             }
             if (remW > 0.0f) {
                 addedWeights = remW / (float) activeIndexes;
-                LOGGER.warning(String.format("Adding to every other valid exchange: %d", addedWeights));
+                LOGGER.warning(String.format("Adding to every other valid exchange: %f", addedWeights));
                 for (i = 0; i < currPrices.length; i++) {
                     float v = e.weights.get(i);
                     if (v > 0.0f)

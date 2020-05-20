@@ -99,6 +99,7 @@ public class RestImp implements Rest {
                 else if (verb.equalsIgnoreCase("DELETE"))
                     r = httpReq.build("DELETE", Entity.entity(data.toString(), MediaType.APPLICATION_JSON)).invoke();
 
+                assert r != null;
                 int status = r.getStatus();
                 success = true;
 
@@ -153,11 +154,12 @@ public class RestImp implements Rest {
     private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
                              MultivaluedMap<String, Object> headers) {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
-        String errName = errorObj.get("name").toString();
-        String errMsg = errorObj.get("message").toString();
         String errLog = String.format("(%d) error on request: %s \n Name: %s \n Message: %s", status,
-                verb + endpoint, errName,
-                errMsg);
+                verb + endpoint, errorObj.get("name").toString(),
+                errorObj.get("message").toString());
+        JsonArray errArr = new JsonArray();
+        errArr.add(errorObj);
+
         if (status == 400 || status == 401 || status == 403) {
             //Parameter error, Unauthorized or Forbidden
             LOGGER.severe(errLog);
@@ -167,12 +169,12 @@ public class RestImp implements Rest {
             sleep(3000); //waits 3000ms until attempting again.
             //Order not found
             if (verb.equalsIgnoreCase("DELETE"))
-                return errorObj.toString();
+                return errArr.toString();
             return api_call(verb, endpoint, data);
         } else if (status == 429) {
             LOGGER.warning(errLog);
             System.currentTimeMillis();
-            long rateLimitReset = (Long) headers.get("x-ratelimit-reset").get(0);
+            long rateLimitReset = Long.parseLong(headers.get("x-ratelimit-reset").get(0).toString());
             //Seconds to sleep
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
             LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
@@ -184,7 +186,7 @@ public class RestImp implements Rest {
             return api_call(verb, endpoint, data);
         }
         LOGGER.warning("Unhandled error. \n " + errLog);
-        return errorObj.toString();
+        return errArr.toString();
     }
 
     /**
@@ -237,7 +239,13 @@ public class RestImp implements Rest {
 
     @Override
     public JsonArray get_order(JsonObject data) {
-        return JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
+        JsonArray response = new JsonArray();
+        JsonArray arr = JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
+        for(JsonElement elem: arr) {
+            if( elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix) )
+                response.add(elem);
+        }
+        return response;
     }
 
     @Override

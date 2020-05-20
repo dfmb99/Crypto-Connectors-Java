@@ -8,6 +8,7 @@ import com.google.gson.*;
 import utils.TimeStamp;
 
 import javax.websocket.*;
+import java.io.IOException;
 import java.net.URI;
 import java.util.Deque;
 import java.util.Map;
@@ -196,6 +197,11 @@ public class WsImp implements Ws {
         this.connect();
     }
 
+    @Override
+    public boolean isSessionOpen() {
+        return this.userSession != null;
+    }
+
     /**
      * Callback hook for Message Events. This method will be invoked when a client send a message.
      *
@@ -293,6 +299,11 @@ public class WsImp implements Ws {
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+            try {
+                this.userSession.close();
+            } catch (IOException e) {
+                LOGGER.warning(e.getMessage());
+            }
             this.userSession = null;
             this.connect();
         }

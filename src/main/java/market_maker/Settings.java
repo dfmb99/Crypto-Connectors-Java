@@ -11,4 +11,7 @@ public class Settings {
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
     public static final int VOLUME_INDEX_SNAPS = 40;
     public static final boolean POST_ONLY = false;
+
+    // how long to wait in each cycle to check / post orders
+    public static final int LOOP_INTERVAL = 500;
 }
