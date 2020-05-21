@@ -14,4 +14,11 @@ public class Settings {
 
     // how long to wait in each cycle to check / post orders
     public static final int LOOP_INTERVAL = 500;
+
+    // minimum spread in ticks
+    public static final int MIN_SPREAD_TICKS = 10;
+
+    public static final boolean CHECK_POSITION_LIMITS = true;
+    public static final long MIN_POSITION = -200;
+    public static final long MAX_POSITION = 200;
 }

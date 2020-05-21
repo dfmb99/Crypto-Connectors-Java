@@ -202,6 +202,16 @@ public class WsImp implements Ws {
         return this.userSession != null;
     }
 
+    @Override
+    public void closeSession() {
+        try {
+            this.userSession.close();
+        } catch (IOException e) {
+            LOGGER.warning(e.getMessage());
+        }
+        this.userSession = null;
+    }
+
     /**
      * Callback hook for Message Events. This method will be invoked when a client send a message.
      *
@@ -299,12 +309,7 @@ public class WsImp implements Ws {
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            try {
-                this.userSession.close();
-            } catch (IOException e) {
-                LOGGER.warning(e.getMessage());
-            }
-            this.userSession = null;
+            this.closeSession();
             this.connect();
         }
     }
@@ -614,12 +619,14 @@ public class WsImp implements Ws {
      */
     @OnError
     public void onError(Throwable throwable) {
+        LOGGER.warning(throwable.toString());
         try {
-            Thread.sleep(10000);
+            Thread.sleep(5000);
         } catch (InterruptedException e) {
             // Do nothing
         }
-        LOGGER.warning(throwable.toString());
+        this.closeSession();
+        this.connect();
     }
 
     /**

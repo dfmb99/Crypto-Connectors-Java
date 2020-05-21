@@ -17,7 +17,6 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Logger;
 
 class ExchangeInterface {
-    private final static Logger LOGGER = Logger.getLogger(ExchangeInterface.class.getName());
     // Funding interval of perpetual swaps on miliseconds
     private final static long FUNDING_INTERVAL = 28800000;
     // days per anum
@@ -25,9 +24,9 @@ class ExchangeInterface {
     // 1 day converted into milliseconds
     private final static long DAY_MS = 86400000L;
 
-    private RestImp mexRest;
-    private WsImp mexWs;
-    private String orderIDPrefix;
+    private final RestImp mexRest;
+    private final WsImp mexWs;
+    private final String orderIDPrefix;
     // class that deals with ticker data on other exchanges
     protected SpotPricesTracker spotPrices;
     // array that stores exchanges weights that are used as index in our symbol
@@ -35,13 +34,13 @@ class ExchangeInterface {
     // Underlying symbol of contract
     private String underlyingSymbol;
     // if perpetual contract null, otherwise date of expiration
-    private String expiry;
+    private final String expiry;
     // Thread that checks updates from other exchanges too see if data is valid and updates weights accordingly
     private IndexCheckThread indexThread;
     // timestamp on where indexes weights are updated
     protected long nextIndexUpdate;
     // tickSize of contract
-    private float tickSize;
+    private final float tickSize;
 
     public ExchangeInterface() {
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
@@ -59,6 +58,15 @@ class ExchangeInterface {
         this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
         this.get_instrument_composite_index();
 
+    }
+
+    /**
+     * Checks if websocket connection is open
+     *
+     * @return true if open, false otherwise
+     */
+    protected boolean isWebsocketOpen() {
+        return this.mexWs.isSessionOpen();
     }
 
     /**
@@ -134,7 +142,8 @@ class ExchangeInterface {
     }
 
     public float get_mark_price() {
-        /**(For perpetual swaps)
+        /**
+         * (For perpetual swaps)
          * Funding Basis = Funding Rate * (Time Until Funding / Funding Interval)
          * Fair Price    = Index Price * (1 + Funding Basis)
          *
@@ -188,33 +197,23 @@ class ExchangeInterface {
     }
 
     /**
-     * Get open buy orders
+     * Gets open orders as a array of JsonArrays
      *
-     * @return open buy orders
+     * @return JsonArray[0] -> open buy orders / JsonArray[1] -> open sell orders
      */
-    public JsonArray get_open_buy_orders() {
-        JsonArray ret = new JsonArray();
-        JsonArray openOrders = (this.mexWs.isSessionOpen()) ? this.mexWs.get_openOrders(this.orderIDPrefix) : rest_get_open_orders();
+    public JsonArray[] get_open_orders() {
+        JsonArray[] arr = new JsonArray[2];
+        arr[0] = new JsonArray();
+        arr[1] = new JsonArray();
+
+        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
         for (JsonElement elem : openOrders) {
             if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
-                ret.add(elem);
+                arr[0].add(elem);
+            else
+                arr[1].add(elem);
         }
-        return ret;
-    }
-
-    /**
-     * Get open sell orders
-     *
-     * @return open sell orders
-     */
-    public JsonArray get_open_sell_orders() {
-        JsonArray ret = new JsonArray();
-        JsonArray openOrders = (this.mexWs.isSessionOpen()) ? this.mexWs.get_openOrders(this.orderIDPrefix) : rest_get_open_orders();
-        for (JsonElement elem : openOrders) {
-            if (elem.getAsJsonObject().get("side").getAsString().equals("Sell"))
-                ret.add(elem);
-        }
-        return ret;
+        return arr;
     }
 
     /**
@@ -249,33 +248,25 @@ class ExchangeInterface {
     }
 
     /**
-     * Returns highest open buy order
+     * Returns JsonObject[] w/ top of the book orders (bid and ask order more more closer to midPrice)
      *
-     * @return order
+     * @return JsonObject[0] -> highest open buy order  / JsonObject[1] -> lowest open sell order
      */
-    public JsonObject get_highest_buy() {
+    public JsonObject[] get_topBook_orders() {
+        JsonArray[] orders = this.get_open_orders();
         JsonObject highestBuy = new JsonObject();
-        JsonArray orders = this.get_open_buy_orders();
-        for (JsonElement currOrd : orders) {
+        JsonObject lowestSell = new JsonObject();
+
+        for (JsonElement currOrd : orders[0]) {
             if (highestBuy.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() > highestBuy.get("price").getAsFloat())
                 highestBuy = currOrd.getAsJsonObject();
         }
-        return highestBuy;
-    }
-
-    /**
-     * Returns lowest open sell order
-     *
-     * @return order
-     */
-    public JsonObject get_lowest_sell() {
-        JsonObject lowestSell = new JsonObject();
-        JsonArray orders = this.get_open_sell_orders();
-        for (JsonElement currOrd : orders) {
-            if (lowestSell.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() > lowestSell.get("price").getAsFloat())
+        for (JsonElement currOrd : orders[1]) {
+            if (lowestSell.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() < lowestSell.get("price").getAsFloat())
                 lowestSell = currOrd.getAsJsonObject();
         }
-        return lowestSell;
+
+        return new JsonObject[]{highestBuy, lowestSell};
     }
 
     /**
@@ -377,17 +368,25 @@ class MarketMakerManager {
     }
 
     /**
-     * Returns volume index of current contract
+     * Returns spread index of current contract, based on historical volatility
      *
      * @return volIndex as float
      */
-    private float get_volume_index() {
+    private float get_spread_index() {
         JsonArray arr = e.get_tradeBin1m();
         float[] closeArr = new float[arr.size() - 1];
+        float midPrice = e.get_mid_price();
+
         for (int i = 1; i < arr.size(); i++) {
             closeArr[i - 1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat() / arr.get(i - 1).getAsJsonObject().get("close").getAsFloat());
         }
-        return (float) (MathCustom.calculateSD(closeArr) * Math.sqrt(closeArr.length));
+        float currVolIndex = (float) (MathCustom.calculateSD(closeArr) * Math.sqrt(closeArr.length));
+        float minimumSpread = get_spread(midPrice + Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
+
+        if (currVolIndex > minimumSpread)
+            return currVolIndex;
+        else
+            return minimumSpread;
     }
 
     /**
@@ -396,35 +395,28 @@ class MarketMakerManager {
      * @return skew
      */
     private float get_position_skew() {
-        float skew = 0;
         long currPos = e.get_position();
+        float skew = 0;
 
+        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * get_spread_index() * 0.8f;
         if (currPos > 0)
-            skew = (float) ((-1 + Math.pow(2.4, Math.abs(currPos) / Settings.ORDER_SIZE / 4)) * get_volume_index() * 0.8 * -1);
+            skew = c * -1f;
         else if (currPos < 0)
-            skew = (float) ((-1 + Math.pow(2.4, Math.abs(currPos) / Settings.ORDER_SIZE / 4)) * get_volume_index() * 0.8);
+            skew = c;
 
         return skew;
     }
 
     /**
-     * Gets new bid price given the current position size
-     *
-     * @return price
+     * Returns new float array that contains new order prices based on current skew
+     * @return [0] -> bid price / [1] -> ask price
      */
-    private float get_new_bid_price() {
+    private float[] get_new_order_prices() {
+        float[] prices = new float[2];
         float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
-        return (float) MathCustom.roundToFraction(quoteMidPrice * (1 - get_volume_index()), e.get_tickSize());
-    }
-
-    /**
-     * Gets new ask price given the current position size
-     *
-     * @return price
-     */
-    private float get_new_ask_price() {
-        float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
-        return (float) MathCustom.roundToFraction(quoteMidPrice * (1 + get_volume_index()), e.get_tickSize());
+        prices[0] = (float) MathCustom.roundToFraction(quoteMidPrice * (1f - get_spread_index()), e.get_tickSize());
+        prices[1] = (float) MathCustom.roundToFraction(quoteMidPrice * (1f + get_spread_index()), e.get_tickSize());
+        return prices;
     }
 
     /**
@@ -432,13 +424,13 @@ class MarketMakerManager {
      */
     private void check_current_spread() {
         float fairPrice = e.get_mark_price();
-        JsonObject buy = e.get_highest_buy();
-        JsonObject sell = e.get_lowest_sell();
+        float[] newPrices = get_new_order_prices();
+        JsonObject[] topBookOrds = e.get_topBook_orders();
 
         // big volatility changes can cause we quoting a spread too wide, so we amend orders to tight the spread
-        if ((buy.keySet().size() > 0 && sell.keySet().size() > 0) && ( get_spread(e.get_order_price(buy), fairPrice) > get_spread(get_new_bid_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
-                ( get_spread(e.get_order_price(sell), fairPrice) > get_spread(get_new_ask_price(), fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
-            LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %f", get_volume_index()));
+        if ((topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() > 0) && (get_spread(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
+                (get_spread(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
+            LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %f", get_spread_index()));
             amend_orders();
         }
     }
@@ -448,22 +440,22 @@ class MarketMakerManager {
      */
     private void amend_orders() {
         JsonArray orders = new JsonArray();
-        JsonObject buy = e.get_highest_buy();
-        JsonObject sell = e.get_lowest_sell();
+        float[] newPrices = get_new_order_prices();
+        JsonObject[] topBookOrds = e.get_topBook_orders();
 
-        if (buy.keySet().size() > 0) {
+        if (topBookOrds[0].keySet().size() > 0) {
             JsonObject newBuy = new JsonObject();
-            newBuy.addProperty("orderID", buy.get("orderID").getAsString());
-            newBuy.addProperty("price", get_new_bid_price());
+            newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
+            newBuy.addProperty("price", newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Amending %s order from %f to %f", buy.get("side").getAsString(), buy.get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
+            LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
         }
-        if (sell.keySet().size() > 0) {
+        if (topBookOrds[1].keySet().size() > 0) {
             JsonObject newSell = new JsonObject();
-            newSell.addProperty("orderID", sell.get("orderID").getAsString());
-            newSell.addProperty("price", get_new_ask_price());
+            newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
+            newSell.addProperty("price", newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Amending %s order from %f to %f", sell.get("side").getAsString(), sell.get("price").getAsFloat(), newSell.get("price").getAsFloat()));
+            LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newSell.get("price").getAsFloat()));
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0)
@@ -486,46 +478,49 @@ class MarketMakerManager {
      */
     private void converge_orders() {
         JsonArray orders = new JsonArray();
-        JsonObject buy = e.get_highest_buy();
-        JsonObject sell = e.get_lowest_sell();
+        float[] newPrices = get_new_order_prices();
+        JsonObject[] topBookOrds = e.get_topBook_orders();
 
         // place new buy order, if no buy order is opened
-        if (buy.keySet().size() < 1) {
-            JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, get_new_bid_price());
+        if (topBookOrds[0].keySet().size() < 1) {
+            JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
             orders.add(newBuy);
             LOGGER.info(String.format("Creating buy order of %d contracts at %f", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
 
             // amends current sell order if there is a sell order opened
-            if (sell.keySet().size() > 0) {
+            if (topBookOrds[1].keySet().size() > 0) {
                 JsonObject newSell = new JsonObject();
-                newSell.addProperty("orderID", sell.get("orderID").getAsString());
-                newSell.addProperty("price", get_new_ask_price());
-                LOGGER.info(String.format("Amending %s order from %f to %f", sell.get("side").getAsString(), sell.get("price").getAsFloat(), newSell.get("price").getAsFloat()));
+                newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
+                newSell.addProperty("price", newPrices[1]);
+                LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newSell.get("price").getAsFloat()));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newSell);
             }
         }
 
         // place new sell order, if no sell order is opened
-        if (sell.keySet().size() < 1) {
-            JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, get_new_ask_price());
+        if (topBookOrds[1].keySet().size() < 1) {
+            JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
             LOGGER.info(String.format("Creating sell order of %d contracts at %f", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
 
             // amends current buy order if there is a buy order opened
-            if (buy.keySet().size() > 0) {
+            if (topBookOrds[0].keySet().size() > 0) {
                 JsonObject newBuy = new JsonObject();
-                newBuy.addProperty("orderID", buy.get("orderID").getAsString());
-                newBuy.addProperty("price", get_new_bid_price());
-                LOGGER.info(String.format("Amending %s order from %f to %f", buy.get("side").getAsString(), buy.get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
+                newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
+                newBuy.addProperty("price", newPrices[0]);
+                LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
         }
 
-        if (!Settings.DRY_RUN && orders.size() > 0)
-            e.place_order_bulk(orders);
-
+        if (!Settings.DRY_RUN) {
+            if (orders.size() > 0)
+                e.place_order_bulk(orders);
+            else
+                check_current_spread();
+        }
     }
 
     private void sanity_check() {
@@ -535,10 +530,10 @@ class MarketMakerManager {
     private void run_loop() {
         while (true) {
             try {
-                converge_orders();
-                Thread.sleep(Settings.LOOP_INTERVAL);
-                check_current_spread();
-                Thread.sleep(Settings.LOOP_INTERVAL);
+                if (e.isWebsocketOpen()) {
+                    converge_orders();
+                    Thread.sleep(Settings.LOOP_INTERVAL);
+                }
             } catch (InterruptedException interruptedException) {
                 // Do nothing
             }

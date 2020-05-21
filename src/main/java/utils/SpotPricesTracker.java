@@ -26,7 +26,6 @@ public class SpotPricesTracker {
     private final int index;
 
     /**
-     *
      * @param symbol - symbol of bitmex contract that we want to track the indexes
      */
     public SpotPricesTracker(String symbol) {
@@ -44,38 +43,49 @@ public class SpotPricesTracker {
     }
 
     /**
-     *
      * @param refs - list of exchanges references to track the price
      */
     public void addExchanges(String[] refs) {
+        Thread[] myThreads = new Thread[refs.length];
         this.refs = refs;
-        for (String ref : refs) {
-            if (kraken == null && ref.equalsIgnoreCase(KRAKEN[0]))
-                kraken = new kraken.WsImp(KRAKEN[index]);
-            else if (itbit == null && ref.equalsIgnoreCase(ITBIT[0]))
-                itbit = new itbit.WsImp(ITBIT[index]);
-            else if (bittrex == null && ref.equalsIgnoreCase(BITTREX[0]))
-                bittrex = new bittrex.WsImp(BITTREX[index]);
-            else if (gemini == null && ref.equalsIgnoreCase(GEMINI[0]))
-                gemini = new gemini.WsImp(GEMINI[index]);
-            else if (bitstamp == null && ref.equalsIgnoreCase(BITSTAMP[0]))
-                bitstamp = new bitstamp.WsImp(BITSTAMP[index]);
-            else if (coinbase == null && ref.equalsIgnoreCase(COINBASE[0]))
-                coinbase = new coinbase.WsImp(COINBASE[index]);
+
+        for (int i = 0; i < refs.length; i++) {
+            if (kraken == null && refs[i].equalsIgnoreCase(KRAKEN[0]))
+                myThreads[i] = new Thread(() -> kraken = new kraken.WsImp(KRAKEN[index]));
+            else if (itbit == null && refs[i].equalsIgnoreCase(ITBIT[0]))
+                myThreads[i] = new Thread(() -> itbit = new itbit.WsImp(ITBIT[index]));
+            else if (bittrex == null && refs[i].equalsIgnoreCase(BITTREX[0]))
+                myThreads[i] = new Thread(() -> bittrex = new bittrex.WsImp(BITTREX[index]));
+            else if (gemini == null && refs[i].equalsIgnoreCase(GEMINI[0]))
+                myThreads[i] = new Thread(() -> gemini = new gemini.WsImp(GEMINI[index]));
+            else if (bitstamp == null && refs[i].equalsIgnoreCase(BITSTAMP[0]))
+                myThreads[i] = new Thread(() -> bitstamp = new bitstamp.WsImp(BITSTAMP[index]));
+            else if (coinbase == null && refs[i].equalsIgnoreCase(COINBASE[0]))
+                myThreads[i] = new Thread(() -> coinbase = new coinbase.WsImp(COINBASE[index]));
             else {
-                LOGGER.warning(String.format("Exchange reference not implemented: %s", ref));
+                LOGGER.warning(String.format("Exchange reference not implemented: %s", refs[i]));
                 System.exit(1);
+            }
+        }
+
+        for (Thread myThread : myThreads) {
+            myThread.start();
+        }
+        for (Thread myThread : myThreads) {
+            try {
+                myThread.join();
+            } catch (InterruptedException e) {
+                // Do nothing
             }
         }
     }
 
     /**
-     *
      * @return prices - exchange prices in array
      */
     public float[] get_last_price() {
         float[] prices = new float[this.refs.length];
-        for(int i = 0; i < refs.length; i++) {
+        for (int i = 0; i < refs.length; i++) {
             if (refs[i].equalsIgnoreCase(KRAKEN[0]))
                 prices[i] = kraken.get_last_price();
             else if (refs[i].equalsIgnoreCase(ITBIT[0]))
@@ -91,7 +101,6 @@ public class SpotPricesTracker {
         }
         return prices;
     }
-
 
 
 }
