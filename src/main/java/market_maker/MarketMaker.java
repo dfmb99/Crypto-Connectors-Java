@@ -359,6 +359,7 @@ class MarketMakerManager {
 
     /**
      * Checks if short position limit is exceeded
+     *
      * @return true if is exceeded, false otherwise
      */
     private boolean short_position_limit_exceeded() {
@@ -369,6 +370,7 @@ class MarketMakerManager {
 
     /**
      * Checks if long position limit is exceeded
+     *
      * @return true if is exceeded, false otherwise
      */
     private boolean long_position_limit_exceeded() {
@@ -416,6 +418,7 @@ class MarketMakerManager {
 
     /**
      * Returns new float array that contains new order prices based on current skew
+     *
      * @return [0] -> bid price / [1] -> ask price
      */
     private float[] get_new_order_prices() {
@@ -492,14 +495,14 @@ class MarketMakerManager {
         if (topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Creating buy order of %d contracts at %f", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
+            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat(), get_spread(newBuy.get("price").getAsFloat(), e.get_mark_price())));
 
             // amends current sell order if there is a sell order opened
             if (topBookOrds[1].keySet().size() > 0) {
                 JsonObject newSell = new JsonObject();
                 newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
                 newSell.addProperty("price", newPrices[1]);
-                LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newSell.get("price").getAsFloat()));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newSell.get("price").getAsFloat(), get_spread(newSell.get("price").getAsFloat(), e.get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newSell);
             }
@@ -509,23 +512,24 @@ class MarketMakerManager {
         if (topBookOrds[1].keySet().size() < 1 && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %f", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
+            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat(), get_spread(newSell.get("price").getAsFloat(), e.get_mark_price())));
 
             // amends current buy order if there is a buy order opened
             if (topBookOrds[0].keySet().size() > 0) {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
                 newBuy.addProperty("price", newPrices[0]);
-                LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newBuy.get("price").getAsFloat(), get_spread(newBuy.get("price").getAsFloat(), e.get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
         }
 
         if (!Settings.DRY_RUN) {
-            if (orders.size() > 0)
+            if (orders.size() > 0) {
+                LOGGER.info(String.format("Current spread index: %f", get_spread_index()));
                 e.place_order_bulk(orders);
-            else
+            } else
                 check_current_spread();
         }
     }
