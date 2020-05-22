@@ -32,9 +32,26 @@ public class Main {
     }
     public static void main(String[] args) {
         JsonObject obj = new JsonObject();
-        System.out.println(Settings.API_SECRET);
+        System.out.println(get_position_skew());
     }
 
+    /**
+     * Calculates skew depending on current position size
+     *
+     * @return skew
+     */
+    private static float get_position_skew() {
+        long currPos = -60;
+        float skew = 0;
+
+        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * 0.001f * 0.8f;
+        if (currPos > 0)
+            skew = c * -1f;
+        else if (currPos < 0)
+            skew = c;
+
+        return skew;
+    }
 }
 
 

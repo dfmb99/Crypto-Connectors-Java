@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 import utils.TimeStamp;
 
 import javax.websocket.*;
+import java.io.IOException;
 import java.net.URI;
 import java.util.logging.Logger;
 
@@ -176,7 +177,7 @@ public class WsImp {
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            this.userSession = null;
+            this.closeSession();
             this.connect();
         }
     }
@@ -188,12 +189,34 @@ public class WsImp {
      */
     @OnError
     public void onError(Throwable throwable) {
+        LOGGER.warning(throwable.toString());
         try {
-            Thread.sleep(10000);
+            Thread.sleep(5000);
         } catch (InterruptedException e) {
             // Do nothing
         }
-        LOGGER.warning(throwable.toString());
+        this.closeSession();
+        this.connect();
+    }
+
+    /**
+     * Gets current status of websocket connection
+     * @return true if websocket connection is open
+     */
+    public boolean isSessionOpen() {
+        return this.userSession != null;
+    }
+
+    /**
+     * Closes current websocket session
+     */
+    public void closeSession() {
+        try {
+            this.userSession.close();
+        } catch (IOException e) {
+            LOGGER.warning(e.getMessage());
+        }
+        this.userSession = null;
     }
 
     /**

@@ -100,18 +100,9 @@ class ExchangeInterface {
             this.weights.add(weight);
         }
 
-        spotPrices.addExchanges(exchangeRefs.toArray(new String[exchangeRefs.size()]));
+        spotPrices.addExchanges(exchangeRefs.toArray(new String[0]));
         // creates new indexThread
         this.indexThread = new IndexCheckThread(this);
-    }
-
-    /**
-     * Returns last price
-     *
-     * @return last price
-     */
-    public float get_last_price() {
-        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("lastPrice").getAsFloat();
     }
 
     /**
@@ -142,7 +133,7 @@ class ExchangeInterface {
     }
 
     public float get_mark_price() {
-        /**
+        /*
          * (For perpetual swaps)
          * Funding Basis = Funding Rate * (Time Until Funding / Funding Interval)
          * Fair Price    = Index Price * (1 + Funding Basis)
@@ -156,7 +147,7 @@ class ExchangeInterface {
         float indexPrice = 0f;
         float[] lastPrices = this.spotPrices.get_last_price();
         for (int i = 0; i < lastPrices.length; i++) {
-            indexPrice += lastPrices[i] * (float) this.weights.get(i);
+            indexPrice += lastPrices[i] * this.weights.get(i);
         }
 
         JsonObject instrument = this.mexWs.get_instrument().get(0).getAsJsonObject();
@@ -337,7 +328,7 @@ class MarketMakerManager {
      *
      * @param orderQty - orderQty, if negative sell order
      * @param price    - price to place the order
-     * @return
+     * @return order
      */
     public JsonObject prepare_limit_order(long orderQty, float price) {
         JsonObject params = new JsonObject();
@@ -383,10 +374,8 @@ class MarketMakerManager {
         float currVolIndex = (float) (MathCustom.calculateSD(closeArr) * Math.sqrt(closeArr.length));
         float minimumSpread = get_spread(midPrice + Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
 
-        if (currVolIndex > minimumSpread)
-            return currVolIndex;
-        else
-            return minimumSpread;
+        LOGGER.fine(String.format("Current volume index: %f", Math.max(currVolIndex, minimumSpread)));
+        return Math.max(currVolIndex, minimumSpread);
     }
 
     /**
@@ -413,7 +402,7 @@ class MarketMakerManager {
      */
     private float[] get_new_order_prices() {
         float[] prices = new float[2];
-        float quoteMidPrice = e.get_mark_price() * (1 + get_position_skew());
+        float quoteMidPrice = e.get_mark_price() * (1f + get_position_skew());
         prices[0] = (float) MathCustom.roundToFraction(quoteMidPrice * (1f - get_spread_index()), e.get_tickSize());
         prices[1] = (float) MathCustom.roundToFraction(quoteMidPrice * (1f + get_spread_index()), e.get_tickSize());
         return prices;
@@ -547,15 +536,13 @@ class MarketMakerManager {
 class IndexCheckThread extends Thread {
     private final static Logger LOGGER = Logger.getLogger(IndexCheckThread.class.getName());
 
-    private ExchangeInterface e;
+    private final ExchangeInterface e;
     // updated prices
     private float[] currPrices;
     // original exchange weights
-    private float[] origWeights;
-    // removed exchange weights
-    private float[] remWeights;
+    private final float[] origWeights;
     // updated timestamps
-    private long[] timeStamps;
+    private final long[] timeStamps;
     // number of active indexes
     private int activeIndexes;
 
@@ -563,13 +550,11 @@ class IndexCheckThread extends Thread {
         this.e = e;
         currPrices = e.spotPrices.get_last_price();
         origWeights = new float[e.weights.size()];
-        remWeights = new float[e.weights.size()];
         timeStamps = new long[e.weights.size()];
         long now = System.currentTimeMillis();
         for (int i = 0; i < origWeights.length; i++) {
             origWeights[i] = e.weights.get(i);
             timeStamps[i] = now;
-            remWeights[i] = 0.0f;
         }
         activeIndexes = origWeights.length;
         this.start();
@@ -600,7 +585,7 @@ class IndexCheckThread extends Thread {
                     timeStamps[i] = now;
                     if (e.weights.get(i) == 0.0f) {
                         float v = origWeights[i] / (float) activeIndexes;
-                        LOGGER.warning(String.format("Invalid exchange updated price, removing from other valid exchanges: %d", v));
+                        LOGGER.warning(String.format("Invalid exchange updated price, removing from other valid exchanges: %f", v));
                         for (int j = 0; j < currPrices.length; j++) {
                             float k = e.weights.get(j);
                             if (k > 0.0f)
