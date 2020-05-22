@@ -2,8 +2,6 @@ package market_maker;
 
 import bitmex.ws.WsImp;
 import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import utils.MathCustom;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -13,7 +11,7 @@ public class Main {
 
     private final static Logger LOGGER = Logger.getLogger(Main.class.getName());
 
-    public static void main2(String[] args) throws InterruptedException, ParseException, IOException {
+    public static void main(String[] args) throws InterruptedException, ParseException, IOException {
         Gson g = new Gson();
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %4$s: %5$s%6$s%n");
         // open websocket
@@ -30,30 +28,6 @@ public class Main {
          "0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "XBTM20");
 
 
-    }
-    public static void main(String[] args) {
-        JsonObject obj = new JsonObject();
-        float[] f = new float[]{1.02f, 54.231f, 323.234f, 12315.1239223f};
-        float res = MathCustom.calculateSD(f);
-        System.out.println(String.format("%.10f", res));
-    }
-
-    /**
-     * Calculates skew depending on current position size
-     *
-     * @return skew
-     */
-    private static float get_position_skew() {
-        long currPos = -60;
-        float skew = 0;
-
-        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * 0.001f * 0.8f;
-        if (currPos > 0)
-            skew = c * -1f;
-        else if (currPos < 0)
-            skew = c;
-
-        return skew;
     }
 }
 

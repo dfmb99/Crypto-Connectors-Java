@@ -160,10 +160,15 @@ public class RestImp implements Rest {
         JsonArray errArr = new JsonArray();
         errArr.add(errorObj);
 
-        if (status == 400 || status == 401 || status == 403) {
-            //Parameter error, Unauthorized or Forbidden
+        if(status == 401) {
+            // Authentication error
             LOGGER.severe(errLog);
             System.exit(1);
+        } else if (status == 400 || status == 403) {
+            //Parameter error, Unauthorized or Forbidden
+            LOGGER.warning(errLog);
+            sleep(3000); //waits 3000ms
+            return errArr.toString();
         } else if (status == 404) {
             LOGGER.warning(errLog);
             sleep(3000); //waits 3000ms until attempting again.

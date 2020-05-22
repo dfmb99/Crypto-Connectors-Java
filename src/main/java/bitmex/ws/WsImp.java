@@ -2,13 +2,15 @@ package bitmex.ws;
 
 import bitmex.rest.Rest;
 import bitmex.rest.RestImp;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import utils.Auth;
 import utils.BinarySearch;
-import com.google.gson.*;
 import utils.TimeStamp;
 
 import javax.websocket.*;
-import java.io.IOException;
 import java.net.URI;
 import java.util.Deque;
 import java.util.Map;
@@ -202,16 +204,6 @@ public class WsImp implements Ws {
         return this.userSession != null;
     }
 
-    @Override
-    public void closeSession() {
-        try {
-            this.userSession.close();
-        } catch (IOException e) {
-            LOGGER.warning(e.getMessage());
-        }
-        this.userSession = null;
-    }
-
     /**
      * Callback hook for Message Events. This method will be invoked when a client send a message.
      *
@@ -309,7 +301,6 @@ public class WsImp implements Ws {
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            this.closeSession();
             this.connect();
         }
     }
@@ -625,7 +616,6 @@ public class WsImp implements Ws {
         } catch (InterruptedException e) {
             // Do nothing
         }
-        this.closeSession();
         this.connect();
     }
 
