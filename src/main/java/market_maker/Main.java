@@ -3,6 +3,7 @@ package market_maker;
 import bitmex.ws.WsImp;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import utils.MathCustom;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -32,7 +33,9 @@ public class Main {
     }
     public static void main(String[] args) {
         JsonObject obj = new JsonObject();
-        System.out.println(get_position_skew());
+        float[] f = new float[]{1.02f, 54.231f, 323.234f, 12315.1239223f};
+        float res = MathCustom.calculateSD(f);
+        System.out.println(String.format("%.10f", res));
     }
 
     /**

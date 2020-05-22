@@ -2,23 +2,23 @@ package utils;
 
 public class MathCustom {
     public static float calculateSD(float numArray[]) {
-        double sum = 0.0, standardDeviation = 0.0;
+        float sum = 0.0f, standardDeviation = 0.0f;
         int length = numArray.length;
 
-        for (double num : numArray) {
+        for (float num : numArray) {
             sum += num;
         }
 
-        double mean = sum / length;
+        float mean = sum / (float) length;
 
-        for (double num : numArray) {
-            standardDeviation += java.lang.Math.pow(num - mean, 2);
+        for (float num : numArray) {
+            standardDeviation += (float) java.lang.Math.pow(num - mean, 2f);
         }
 
-        return (float) java.lang.Math.sqrt(standardDeviation / (length - 1));
+        return (float) java.lang.Math.sqrt(standardDeviation /  ((float) length - 1f));
     }
 
-    public static double roundToFraction(double x, double fraction) {
-        return (double) Math.round(x * (1 / fraction)) / (1 / fraction);
+    public static float roundToFraction(float x, float fraction) {
+        return (float) Math.round(x * (1f / fraction)) / (1f / fraction);
     }
 }

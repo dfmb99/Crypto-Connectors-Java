@@ -390,10 +390,9 @@ class MarketMakerManager {
         for (int i = 1; i < arr.size(); i++) {
             closeArr[i - 1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat() / arr.get(i - 1).getAsJsonObject().get("close").getAsFloat());
         }
-        float currVolIndex = (float) (MathCustom.calculateSD(closeArr) * Math.sqrt(closeArr.length));
-        float minimumSpread = get_spread(midPrice + Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
+        float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
+        float minimumSpread = get_spread(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
 
-        LOGGER.fine(String.format("Current volume index: %f", Math.max(currVolIndex, minimumSpread)));
         return Math.max(currVolIndex, minimumSpread);
     }
 
@@ -422,8 +421,8 @@ class MarketMakerManager {
     private float[] get_new_order_prices() {
         float[] prices = new float[2];
         float quoteMidPrice = e.get_mark_price() * (1f + get_position_skew());
-        prices[0] = (float) MathCustom.roundToFraction(quoteMidPrice * (1f - get_spread_index()), e.get_tickSize());
-        prices[1] = (float) MathCustom.roundToFraction(quoteMidPrice * (1f + get_spread_index()), e.get_tickSize());
+        prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - get_spread_index()), e.get_tickSize());
+        prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + get_spread_index()), e.get_tickSize());
         return prices;
     }
 
