@@ -110,7 +110,7 @@ class ExchangeInterface {
      *
      * @return bid price
      */
-    public float get_bid_price() {
+    protected float get_bid_price() {
         return this.mexWs.get_instrument().get(0).getAsJsonObject().get("bidPrice").getAsFloat();
     }
 
@@ -119,7 +119,7 @@ class ExchangeInterface {
      *
      * @return ask price
      */
-    public float get_ask_price() {
+    protected float get_ask_price() {
         return this.mexWs.get_instrument().get(0).getAsJsonObject().get("askPrice").getAsFloat();
     }
 
@@ -128,11 +128,11 @@ class ExchangeInterface {
      *
      * @return mid price
      */
-    public float get_mid_price() {
+    protected float get_mid_price() {
         return (get_ask_price() + get_bid_price()) / 2;
     }
 
-    public float get_mark_price() {
+    protected float get_mark_price() {
         /*
          * (For perpetual swaps)
          * Funding Basis = Funding Rate * (Time Until Funding / Funding Interval)
@@ -169,7 +169,7 @@ class ExchangeInterface {
      *
      * @return position size
      */
-    public long get_position() {
+    protected long get_position() {
         return this.mexWs.get_position().get(0).getAsJsonObject().get("currentQty").getAsLong();
     }
 
@@ -178,7 +178,7 @@ class ExchangeInterface {
      *
      * @return JsonArray of response
      */
-    public JsonArray rest_get_open_orders() {
+    protected JsonArray rest_get_open_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", Settings.SYMBOL);
         params.addProperty("filter", "{\"ordStatus.isTerminated\": false}");
@@ -192,7 +192,7 @@ class ExchangeInterface {
      *
      * @return JsonArray[0] -> open buy orders / JsonArray[1] -> open sell orders
      */
-    public JsonArray[] get_open_orders() {
+    protected JsonArray[] get_open_orders() {
         JsonArray[] arr = new JsonArray[2];
         arr[0] = new JsonArray();
         arr[1] = new JsonArray();
@@ -212,11 +212,10 @@ class ExchangeInterface {
      *
      * @return margin used
      */
-    public float get_margin_used() {
+    protected float get_margin_used() {
         JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
         return (float) margin.get("availableMargin").getAsLong() / margin.get("marginBalance").getAsLong();
     }
-
 
     /**
      * Returns price of an order
@@ -224,7 +223,7 @@ class ExchangeInterface {
      * @param order - JsonObject
      * @return price
      */
-    public float get_order_price(JsonObject order) {
+    protected float get_order_price(JsonObject order) {
         return order.get("price").getAsFloat();
     }
 
@@ -234,7 +233,7 @@ class ExchangeInterface {
      * @param order - JsonObject
      * @return orderID
      */
-    public String get_orderID(JsonObject order) {
+    protected String get_orderID(JsonObject order) {
         return order.get("orderID").getAsString();
     }
 
@@ -243,7 +242,7 @@ class ExchangeInterface {
      *
      * @return JsonObject[0] -> highest open buy order  / JsonObject[1] -> lowest open sell order
      */
-    public JsonObject[] get_topBook_orders() {
+    protected JsonObject[] get_topBook_orders() {
         JsonArray[] orders = this.get_open_orders();
         JsonObject highestBuy = new JsonObject();
         JsonObject lowestSell = new JsonObject();
@@ -266,7 +265,7 @@ class ExchangeInterface {
      * @param order - order to be placed
      * @return JsonObject - response of request
      */
-    public JsonObject place_order(JsonObject order) {
+    protected JsonObject place_order(JsonObject order) {
         return this.mexRest.post_order(order);
     }
 
@@ -276,7 +275,7 @@ class ExchangeInterface {
      * @param orders - orders to be placed
      * @return JsonObject - response of request
      */
-    public JsonArray place_order_bulk(JsonArray orders) {
+    protected JsonArray place_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
         params.add("orders", orders);
         return this.mexRest.post_order_bulk(params);
@@ -288,7 +287,7 @@ class ExchangeInterface {
      * @param order - order to be amended
      * @return JsonObject - response of request
      */
-    public JsonObject amend_order(JsonObject order) {
+    protected JsonObject amend_order(JsonObject order) {
         return this.mexRest.put_order(order);
     }
 
@@ -298,7 +297,7 @@ class ExchangeInterface {
      * @param orders - orders to be amended
      * @return JsonObject - response of request
      */
-    public JsonArray amend_order_bulk(JsonArray orders) {
+    protected JsonArray amend_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
         params.add("orders", orders);
         return this.mexRest.put_order_bulk(params);
@@ -309,7 +308,7 @@ class ExchangeInterface {
      *
      * @return JSONArray
      */
-    public JsonArray get_tradeBin1m() {
+    protected JsonArray get_tradeBin1m() {
         return this.mexWs.get_trabeBin1m();
     }
 }
@@ -330,7 +329,7 @@ class MarketMakerManager {
      * @param price    - price to place the order
      * @return order
      */
-    public JsonObject prepare_limit_order(long orderQty, float price) {
+    private JsonObject prepare_limit_order(long orderQty, float price) {
         JsonObject params = new JsonObject();
         String execInst = Settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
 
@@ -349,13 +348,33 @@ class MarketMakerManager {
      * @param orderQty - orderQty, if negative sell order
      * @return order - order built
      */
-    public JsonObject prepare_market_order(long orderQty) {
+    private JsonObject prepare_market_order(long orderQty) {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", Settings.SYMBOL);
         params.addProperty("orderQty", orderQty);
         params.addProperty("ordType", "Market");
 
         return params;
+    }
+
+    /**
+     * Checks if short position limit is exceeded
+     * @return true if is exceeded, false otherwise
+     */
+    private boolean short_position_limit_exceeded() {
+        if (!Settings.CHECK_POSITION_LIMITS)
+            return false;
+        return e.get_position() <= Settings.MIN_POSITION;
+    }
+
+    /**
+     * Checks if long position limit is exceeded
+     * @return true if is exceeded, false otherwise
+     */
+    private boolean long_position_limit_exceeded() {
+        if (!Settings.CHECK_POSITION_LIMITS)
+            return false;
+        return e.get_position() >= Settings.MAX_POSITION;
     }
 
     /**
@@ -471,7 +490,7 @@ class MarketMakerManager {
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
         // place new buy order, if no buy order is opened
-        if (topBookOrds[0].keySet().size() < 1) {
+        if (topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
             orders.add(newBuy);
             LOGGER.info(String.format("Creating buy order of %d contracts at %f", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat()));
@@ -488,7 +507,7 @@ class MarketMakerManager {
         }
 
         // place new sell order, if no sell order is opened
-        if (topBookOrds[1].keySet().size() < 1) {
+        if (topBookOrds[1].keySet().size() < 1 && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
             LOGGER.info(String.format("Creating sell order of %d contracts at %f", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat()));
