@@ -26,6 +26,7 @@ class ExchangeInterface {
 
     private final RestImp mexRest;
     private final WsImp mexWs;
+    private final String symbol;
     private final String orderIDPrefix;
     // class that deals with ticker data on other exchanges
     protected SpotPricesTracker spotPrices;
@@ -42,11 +43,12 @@ class ExchangeInterface {
     // tickSize of contract
     private final float tickSize;
 
-    public ExchangeInterface() {
+    public ExchangeInterface(String symbol) {
+        this.symbol = symbol;
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
-        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, Settings.SYMBOL);
-        this.spotPrices = new SpotPricesTracker(Settings.SYMBOL);
+        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, symbol);
+        this.spotPrices = new SpotPricesTracker(symbol);
         this.indexThread = null;
 
         // Initial data
@@ -180,7 +182,7 @@ class ExchangeInterface {
      */
     protected JsonArray rest_get_open_orders() {
         JsonObject params = new JsonObject();
-        params.addProperty("symbol", Settings.SYMBOL);
+        params.addProperty("symbol", this.symbol);
         params.addProperty("filter", "{\"ordStatus.isTerminated\": false}");
         params.addProperty("count", 100);
         params.addProperty("reverse", true);
@@ -316,9 +318,11 @@ class ExchangeInterface {
 class MarketMakerManager {
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
     private final ExchangeInterface e;
+    private String symbol;
 
-    public MarketMakerManager() {
-        e = new ExchangeInterface();
+    public MarketMakerManager(String symbol) {
+        e = new ExchangeInterface(symbol);
+        this.symbol = symbol;
         run_loop();
     }
 
@@ -333,7 +337,7 @@ class MarketMakerManager {
         JsonObject params = new JsonObject();
         String execInst = Settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
 
-        params.addProperty("symbol", Settings.SYMBOL);
+        params.addProperty("symbol", this.symbol);
         params.addProperty("orderQty", orderQty);
         params.addProperty("price", price);
         params.addProperty("ordType", "Limit");
@@ -350,7 +354,7 @@ class MarketMakerManager {
      */
     private JsonObject prepare_market_order(long orderQty) {
         JsonObject params = new JsonObject();
-        params.addProperty("symbol", Settings.SYMBOL);
+        params.addProperty("symbol", this.symbol);
         params.addProperty("orderQty", orderQty);
         params.addProperty("ordType", "Market");
 
@@ -393,7 +397,8 @@ class MarketMakerManager {
             closeArr[i - 1] = (float) Math.log(arr.get(i).getAsJsonObject().get("close").getAsFloat() / arr.get(i - 1).getAsJsonObject().get("close").getAsFloat());
         }
         float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
-        float minimumSpread = get_spread(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
+        currVolIndex = currVolIndex * (float) Math.sqrt(1f / ((float) closeArr.length / Settings.SPREAD_INDEX));
+        float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
 
         return Math.max(currVolIndex, minimumSpread);
     }
@@ -432,14 +437,14 @@ class MarketMakerManager {
     /**
      * Checks current order spreads to markPrice, and amends them if necessary
      */
-    private void check_current_spread() {
+    private void check_current_spread() throws InterruptedException {
         float fairPrice = e.get_mark_price();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
         // big volatility changes can cause we quoting a spread too wide, so we amend orders to tight the spread
-        if ((topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() > 0) && (get_spread(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
-                (get_spread(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
+        if ((topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() > 0) && (get_spread_abs(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
+                (get_spread_abs(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
             LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %f", get_spread_index()));
             amend_orders();
         }
@@ -448,7 +453,7 @@ class MarketMakerManager {
     /**
      * Amends order pair that is closer to midPrice with current position skew, if orders exist, otherwise does nothing
      */
-    private void amend_orders() {
+    private void amend_orders() throws InterruptedException {
         JsonArray orders = new JsonArray();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
@@ -468,8 +473,22 @@ class MarketMakerManager {
             LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newSell.get("price").getAsFloat()));
         }
 
-        if (!Settings.DRY_RUN && orders.size() > 0)
+        if (!Settings.DRY_RUN && orders.size() > 0) {
             e.amend_order_bulk(orders);
+            print_status();
+            Thread.sleep(Settings.REST_INTERVAL);
+        }
+    }
+
+    /**
+     * Returns the absolute spread between two prices
+     *
+     * @param p1 - price 1
+     * @param p2 - price 2
+     * @return spread
+     */
+    public static float get_spread_abs(float p1, float p2) {
+        return Math.abs(p1 - p2) / p2;
     }
 
     /**
@@ -479,14 +498,14 @@ class MarketMakerManager {
      * @param p2 - price 2
      * @return spread
      */
-    private float get_spread(float p1, float p2) {
-        return Math.abs(p1 - p2) / p2;
+    public static float get_spread(float p1, float p2) {
+        return (p1 - p2) / p2;
     }
 
     /**
      * Checks current open orders, and replaces/places new orders if any are missing
      */
-    private void converge_orders() {
+    private void converge_orders() throws InterruptedException {
         JsonArray orders = new JsonArray();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
@@ -495,14 +514,14 @@ class MarketMakerManager {
         if (topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newBuy.get("price").getAsFloat(), get_spread(newBuy.get("price").getAsFloat(), e.get_mark_price())));
+            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], e.get_mark_price())));
 
             // amends current sell order if there is a sell order opened
             if (topBookOrds[1].keySet().size() > 0) {
                 JsonObject newSell = new JsonObject();
                 newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
                 newSell.addProperty("price", newPrices[1]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newSell.get("price").getAsFloat(), get_spread(newSell.get("price").getAsFloat(), e.get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newPrices[1], get_spread(newPrices[1], e.get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newSell);
             }
@@ -512,14 +531,14 @@ class MarketMakerManager {
         if (topBookOrds[1].keySet().size() < 1 && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newSell.get("price").getAsFloat(), get_spread(newSell.get("price").getAsFloat(), e.get_mark_price())));
+            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread_abs(newPrices[1], e.get_mark_price())));
 
             // amends current buy order if there is a buy order opened
             if (topBookOrds[0].keySet().size() > 0) {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
                 newBuy.addProperty("price", newPrices[0]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newBuy.get("price").getAsFloat(), get_spread(newBuy.get("price").getAsFloat(), e.get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread_abs(newPrices[0], e.get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
@@ -527,8 +546,9 @@ class MarketMakerManager {
 
         if (!Settings.DRY_RUN) {
             if (orders.size() > 0) {
-                LOGGER.info(String.format("Current spread index: %f", get_spread_index()));
                 e.place_order_bulk(orders);
+                print_status();
+                Thread.sleep(Settings.REST_INTERVAL);
             } else
                 check_current_spread();
         }
@@ -536,6 +556,15 @@ class MarketMakerManager {
 
     private void sanity_check() {
 
+    }
+
+    private void print_status() {
+        LOGGER.info(String.format("Position: %f", e.get_position()));
+        LOGGER.info(String.format("Margin used: %f", e.get_margin_used()));
+        LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
+        LOGGER.info(String.format("Spread index: %f", get_spread_index()));
+        LOGGER.info(String.format("Skew: %f", get_position_skew()));
+        LOGGER.info(String.format("Open orders: %d", e.get_open_orders().length));
     }
 
     private void run_loop() {
@@ -635,7 +664,29 @@ class IndexCheckThread extends Thread {
                         e.weights.set(i, v + addedWeights);
                 }
             }
+
+            float median = MathCustom.calculateMedian(newData);
+            for(i = 0; i < newData.length; i++) {
+                if(newData.length == 1 ) {  // if index has one constituent
+                    if(MarketMakerManager.get_spread_abs(newData[i], currPrices[i]) >= 0.25f)
+                        e.weights.set(i, 0.0f);
+                    else
+                        e.weights.set(i, origWeights[i]);
+                }else if (newData.length == 2) { // if index has two constituents
+                    if(MarketMakerManager.get_spread_abs(newData[i], median) >= 0.125f)
+                        e.weights.set(i, 0.0f);
+                    else
+                        e.weights.set(i, origWeights[i]);
+                } else { // if index has three or more constituents
+                    if(MarketMakerManager.get_spread_abs(newData[i], median) >= 0.25f)
+                        e.weights.set(i, 0.0f);
+                    else
+                        e.weights.set(i, origWeights[i]);
+                }
+            }
+
             currPrices = newData.clone();
+
             try {
                 Thread.sleep(5000);
             } catch (InterruptedException e) {
@@ -651,8 +702,7 @@ public class MarketMaker {
 
     public static void main(String[] args) {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
-        MarketMakerManager m = new MarketMakerManager();
-
+        MarketMakerManager m = new MarketMakerManager(Settings.SYMBOL);
     }
 
     private void fileWatcher() throws IOException, InterruptedException {

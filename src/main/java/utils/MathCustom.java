@@ -1,5 +1,7 @@
 package utils;
 
+import java.util.Arrays;
+
 public class MathCustom {
     public static float calculateSD(float numArray[]) {
         float sum = 0.0f, standardDeviation = 0.0f;
@@ -20,5 +22,13 @@ public class MathCustom {
 
     public static float roundToFraction(float x, float fraction) {
         return (float) Math.round(x * (1f / fraction)) / (1f / fraction);
+    }
+
+    public static float calculateMedian(float numArray[]) {
+        Arrays.sort(numArray);
+        if (numArray.length % 2 == 0)
+            return (numArray[numArray.length/2] + numArray[numArray.length/2 - 1]) / 2f;
+        else
+            return numArray[numArray.length/2];
     }
 }
