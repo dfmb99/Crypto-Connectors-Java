@@ -216,7 +216,7 @@ class ExchangeInterface {
      */
     protected float get_margin_used() {
         JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
-        return (float) margin.get("availableMargin").getAsLong() / margin.get("marginBalance").getAsLong();
+        return 1f - (margin.get("availableMargin").getAsFloat() / margin.get("marginBalance").getAsFloat());
     }
 
     /**
