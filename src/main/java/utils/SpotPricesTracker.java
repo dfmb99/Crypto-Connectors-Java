@@ -102,5 +102,11 @@ public class SpotPricesTracker {
         return prices;
     }
 
-
+    /**
+     * Returns array of exchange references
+     * @return array of exchange references
+     */
+    public String[] get_exchanges_refs() {
+        return this.refs;
+    }
 }

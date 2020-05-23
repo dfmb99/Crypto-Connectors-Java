@@ -531,7 +531,7 @@ class MarketMakerManager {
         if (topBookOrds[1].keySet().size() < 1 && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread_abs(newPrices[1], e.get_mark_price())));
+            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], e.get_mark_price())));
 
             // amends current buy order if there is a buy order opened
             if (topBookOrds[0].keySet().size() > 0) {
@@ -559,7 +559,7 @@ class MarketMakerManager {
     }
 
     private void print_status() {
-        LOGGER.info(String.format("Position: %f", e.get_position()));
+        LOGGER.info(String.format("Position: %d", e.get_position()));
         LOGGER.info(String.format("Margin used: %f", e.get_margin_used()));
         LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
@@ -592,6 +592,8 @@ class IndexCheckThread extends Thread {
     private float[] currPrices;
     // original exchange weights
     private final float[] origWeights;
+    // exchange weights stored when using the median algorithm
+    private final float[] medianWeights;
     // updated timestamps
     private final long[] timeStamps;
     // number of active indexes
@@ -600,11 +602,14 @@ class IndexCheckThread extends Thread {
     public IndexCheckThread(ExchangeInterface e) {
         this.e = e;
         currPrices = e.spotPrices.get_last_price();
-        origWeights = new float[e.weights.size()];
-        timeStamps = new long[e.weights.size()];
+        int weightsSize = e.weights.size();
+        origWeights = new float[weightsSize];
+        medianWeights = new float[weightsSize];
+        timeStamps = new long[weightsSize];
         long now = System.currentTimeMillis();
         for (int i = 0; i < origWeights.length; i++) {
             origWeights[i] = e.weights.get(i);
+            medianWeights[i] = -1f;
             timeStamps[i] = now;
         }
         activeIndexes = origWeights.length;
@@ -614,29 +619,27 @@ class IndexCheckThread extends Thread {
     @Override
     public void run() {
         float[] newData;
-        float remW;
-        float addedWeights;
         int i;
         long now;
         while (!Thread.interrupted()) {
-            remW = 0.0f;
             now = System.currentTimeMillis();
             newData = e.spotPrices.get_last_price();
 
             // Indexes weights get updated after quarterly futures expiry + 5 seconds
             if (System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
-                LOGGER.info("Updating index weights.");
+                LOGGER.info("New quarterly expiry, updating index weights.");
                 this.interrupt();
                 e.get_instrument_composite_index();
             }
 
+            float remW = 0.0f;
             for (i = 0; i < currPrices.length; i++) {
                 // if data received is different than data we have, update timestamp array
                 if (newData[i] != currPrices[i]) {
                     timeStamps[i] = now;
                     if (e.weights.get(i) == 0.0f) {
                         float v = origWeights[i] / (float) activeIndexes;
-                        LOGGER.warning(String.format("Invalid exchange updated price, removing from other valid exchanges: %f", v));
+                        LOGGER.warning(String.format("Exchange \"%s\" updated price, re-adding to index", e.spotPrices.get_exchanges_refs()[i]));
                         for (int j = 0; j < currPrices.length; j++) {
                             float k = e.weights.get(j);
                             if (k > 0.0f)
@@ -647,7 +650,7 @@ class IndexCheckThread extends Thread {
                 }
                 //check if index needs to be removed
                 if (System.currentTimeMillis() - timeStamps[i] > 900000) {
-                    LOGGER.warning(String.format("Removing exchange at index %d due to not receiving price updates for 15 minutes.", i));
+                    LOGGER.warning(String.format("Removing exchange \"%s\" from index, due to not receiving price updates for 15 minutes.", e.spotPrices.get_exchanges_refs()[i]));
                     activeIndexes--;
                     //removed weight needs to be distributed by the rest
                     remW += e.weights.get(i);
@@ -656,8 +659,7 @@ class IndexCheckThread extends Thread {
                 }
             }
             if (remW > 0.0f) {
-                addedWeights = remW / (float) activeIndexes;
-                LOGGER.warning(String.format("Adding to every other valid exchange: %f", addedWeights));
+                float addedWeights = remW / (float) activeIndexes;
                 for (i = 0; i < currPrices.length; i++) {
                     float v = e.weights.get(i);
                     if (v > 0.0f)
@@ -666,31 +668,36 @@ class IndexCheckThread extends Thread {
             }
 
             float median = MathCustom.calculateMedian(newData);
-            for(i = 0; i < newData.length; i++) {
-                if(newData.length == 1 ) {  // if index has one constituent
-                    if(MarketMakerManager.get_spread_abs(newData[i], currPrices[i]) >= 0.25f)
-                        e.weights.set(i, 0.0f);
-                    else
-                        e.weights.set(i, origWeights[i]);
-                }else if (newData.length == 2) { // if index has two constituents
-                    if(MarketMakerManager.get_spread_abs(newData[i], median) >= 0.125f)
-                        e.weights.set(i, 0.0f);
-                    else
-                        e.weights.set(i, origWeights[i]);
-                } else { // if index has three or more constituents
-                    if(MarketMakerManager.get_spread_abs(newData[i], median) >= 0.25f)
-                        e.weights.set(i, 0.0f);
-                    else
-                        e.weights.set(i, origWeights[i]);
+            for (i = 0; i < newData.length; i++) {
+                if (newData.length == 1) {  // if index has one constituent
+                    if (MarketMakerManager.get_spread_abs(newData[i], currPrices[i]) >= 0.25f){
+                        LOGGER.warning(String.format("[%s] The constituent differs from last constituent for more than 25%. Using last price.", e.spotPrices.get_exchanges_refs()[i]));
+                        newData[i] = currPrices[i];
+                    }
+                } else if (newData.length == 2) { // if index has two constituents
+                    if (MarketMakerManager.get_spread_abs(newData[i], median) >= 0.125f) {
+                        LOGGER.warning(String.format("[%s] The constituent differs from median constituent for more than 12.5%. Using last prices.", e.spotPrices.get_exchanges_refs()[i]));
+                        newData[i] = currPrices[i];
+                    } else { // if index has three or more constituents
+                        if (MarketMakerManager.get_spread_abs(newData[i], median) >= 0.25f) {
+                            LOGGER.warning(String.format("[%s] The constituent differs from the median of the index by 25%. Removing this constituent from the index.", e.spotPrices.get_exchanges_refs()[i]));
+                            medianWeights[i] = e.weights.get(i);
+                            e.weights.set(i, 0.0f);
+                        } else if (medianWeights[i] > 0) {
+                            LOGGER.warning(String.format("[%s]  The constituent returns to the index, price differs from the median by less than 25%.", e.spotPrices.get_exchanges_refs()[i]));
+                            e.weights.set(i, e.weights.get(i) + medianWeights[i]);
+                            medianWeights[i] = -1f;
+                        }
+                    }
                 }
-            }
 
-            currPrices = newData.clone();
+                currPrices = newData.clone();
 
-            try {
-                Thread.sleep(5000);
-            } catch (InterruptedException e) {
-                //Do nothing
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException e) {
+                    //Do nothing
+                }
             }
         }
     }
