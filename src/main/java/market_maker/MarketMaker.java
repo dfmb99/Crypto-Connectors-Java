@@ -599,13 +599,15 @@ class MarketMakerManager {
     }
 
     private void print_status() {
+        JsonArray[] openOrders = e.get_open_orders();
+
         LOGGER.info(String.format("Position: %d", e.get_position()));
         LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
         LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
         LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
         LOGGER.info(String.format("Skew: %f", get_position_skew()));
-        LOGGER.info(String.format("Open orders: %d", e.get_open_orders().length));
+        LOGGER.info(String.format("Open orders: %d", (openOrders[0].size() + openOrders[1].size())));
     }
 
     private void run_loop() {
