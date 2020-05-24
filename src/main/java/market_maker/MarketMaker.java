@@ -581,8 +581,8 @@ class MarketMakerManager {
         if (!Settings.DRY_RUN) {
             if (orders.size() > 0) {
                 e.place_order_bulk(orders);
-                print_status();
                 Thread.sleep(Settings.REST_INTERVAL);
+                print_status();
             } else
                 check_current_spread();
         }
@@ -595,6 +595,8 @@ class MarketMakerManager {
     }
 
     private void sanity_check() {
+        // check amount of orders, and cancel if too many
+        // check mark price diff from markPrice of mex
 
     }
 
@@ -607,7 +609,7 @@ class MarketMakerManager {
         LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
         LOGGER.info(String.format("Skew: %f", get_position_skew()));
-        LOGGER.info(String.format("Open orders: %d", (openOrders[0].size() + openOrders[1].size())));
+        LOGGER.info(String.format("Open orders: bids %d, asks %d", openOrders[0].size(), openOrders[1].size() ));
     }
 
     private void run_loop() {
