@@ -12,6 +12,7 @@ import utils.TimeStamp;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.FileHandler;
@@ -217,6 +218,22 @@ class ExchangeInterface {
     }
 
     /**
+     * Cancels all open orders on this contract
+     */
+    protected void cancel_all_orders() {
+        JsonObject params = new JsonObject();
+        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        String[] toCancel = new String[openOrders.size()];
+
+        for (int i = 0; i < openOrders.size(); i++) {
+            toCancel[i] = openOrders.get(i).getAsJsonObject().get("orderID").toString();
+        }
+
+        params.addProperty("orderID", Arrays.toString(toCancel));
+        this.mexRest.del_order(params);
+    }
+
+    /**
      * Get margin used (ratio between available margin and margin balance)
      *
      * @return margin used
@@ -233,7 +250,7 @@ class ExchangeInterface {
      */
     protected float get_margin_balance() {
         JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
-        return margin.get("marginBalance").getAsFloat();
+        return margin.get("marginBalance").getAsFloat() * (float) Math.pow(10, -8);
     }
 
     /**
@@ -571,6 +588,12 @@ class MarketMakerManager {
         }
     }
 
+
+    protected void cancel_all_orders() {
+        LOGGER.info("Canceling all open orders.");
+        e.cancel_all_orders();
+    }
+
     private void sanity_check() {
 
     }
@@ -578,7 +601,7 @@ class MarketMakerManager {
     private void print_status() {
         LOGGER.info(String.format("Position: %d", e.get_position()));
         LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
-        LOGGER.info(String.format("Margin used: %f", e.get_margin_used()));
+        LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
         LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
         LOGGER.info(String.format("Skew: %f", get_position_skew()));
@@ -728,7 +751,7 @@ public class MarketMaker {
     public static void main(String[] args) {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
         loggingConfig();
-        LOGGER.info(String.format("Starting execution in %s", Settings.SYMBOL));
+        LOGGER.info(String.format("Starting execution in %s with PID: %d", Settings.SYMBOL, ProcessHandle.current().pid()));
         new MarketMakerManager(Settings.SYMBOL);
     }
 
@@ -764,7 +787,7 @@ public class MarketMaker {
             Thread.sleep(3000);
             for (WatchEvent<?> event : key.pollEvents()) {
                 String fileChanged = event.context().toString();
-                LOGGER.warning("Event kind:" + event.kind() + ". File affected: " + fileChanged);
+                LOGGER.info("Event kind:" + event.kind() + ". File affected: " + fileChanged);
             }
             key.reset();
         }
