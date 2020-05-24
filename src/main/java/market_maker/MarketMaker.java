@@ -748,7 +748,7 @@ public class MarketMaker {
 
     private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
         loggingConfig();
         LOGGER.info(String.format("Starting execution in %s with PID: %d", Settings.SYMBOL, ProcessHandle.current().pid()));
