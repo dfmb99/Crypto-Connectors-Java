@@ -154,7 +154,7 @@ public class RestImp implements Rest {
     private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
                              MultivaluedMap<String, Object> headers) {
         JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
-        String errLog = String.format("(%d) error on request: %s \n Name: %s \n Message: %s", status,
+        String errLog = String.format("(%d) error on request: %s  Name: %s  Message: %s", status,
                 verb + endpoint, errorObj.get("name").toString(),
                 errorObj.get("message").toString());
         JsonArray errArr = new JsonArray();
@@ -168,6 +168,9 @@ public class RestImp implements Rest {
             //Parameter error, Unauthorized or Forbidden
             LOGGER.warning(errLog);
             sleep(3000); //waits 3000ms
+            // same methods are expecting JsonObject and others expect a JsonArray
+            if(((verb.equals("PUT") || verb.equals("POST")) && endpoint.equals("/order")) || endpoint.equals("/order/cancelAllAfter") || endpoint.equals("/user/margin"))
+                return errorObj.toString();
             return errArr.toString();
         } else if (status == 404) {
             LOGGER.warning(errLog);
