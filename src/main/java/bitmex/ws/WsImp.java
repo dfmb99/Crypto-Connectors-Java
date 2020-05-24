@@ -11,6 +11,7 @@ import utils.BinarySearch;
 import utils.TimeStamp;
 
 import javax.websocket.*;
+import java.io.IOException;
 import java.net.URI;
 import java.util.Deque;
 import java.util.Map;
@@ -41,7 +42,7 @@ class HeartbeatThread extends Thread {
                 this.ws.sendMessage("ping");
             } else if (System.currentTimeMillis() - startTime > 10000) {
                 LOGGER.finest("Heartbeat thread reconnecting.");
-                this.ws.connect();
+                this.ws.closeSession();
                 this.interrupt();
             }
         }
@@ -199,6 +200,30 @@ public class WsImp implements Ws {
         this.connect();
     }
 
+    /**
+     * Callback hook for Error Events. This method will be invoked when a client receives a error.
+     *
+     * @param throwable - Error thrown
+     */
+    @OnError
+    public void onError(Throwable throwable) {
+        LOGGER.warning(throwable.toString());
+    }
+
+    @Override
+    public boolean closeSession() {
+        if(isSessionOpen()) {
+            try {
+                this.userSession.close();
+                return true;
+            } catch (IOException e) {
+                LOGGER.warning("Could not close user session.");
+                return false;
+            }
+        }
+        return false;
+    }
+
     @Override
     public boolean isSessionOpen() {
         return this.userSession != null;
@@ -301,7 +326,8 @@ public class WsImp implements Ws {
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            this.connect();
+            // closes current websocket connection
+            this.closeSession();
         }
     }
 
@@ -601,22 +627,6 @@ public class WsImp implements Ws {
             newArray.add(currentArray.get(i));
         }
         return newArray;
-    }
-
-    /**
-     * Callback hook for Error Events. This method will be invoked when a client receives a error.
-     *
-     * @param throwable - Error thrown
-     */
-    @OnError
-    public void onError(Throwable throwable) {
-        LOGGER.warning(throwable.toString());
-        try {
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            // Do nothing
-        }
-        this.connect();
     }
 
     /**

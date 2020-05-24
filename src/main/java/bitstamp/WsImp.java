@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import javax.websocket.*;
+import java.io.IOException;
 import java.net.URI;
 import java.util.logging.Logger;
 
@@ -89,7 +90,7 @@ public class WsImp {
         } else if (event.equalsIgnoreCase("bts:error"))
             LOGGER.warning(response.get("data").getAsString());
         else if (event.equalsIgnoreCase("bts:request_reconnect"))
-            this.connect();
+            this.closeSession();
     }
 
 
@@ -111,7 +112,7 @@ public class WsImp {
         long latency = System.currentTimeMillis() - timestamp;
         if( latency > MAX_LATENCY) {
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            this.connect();
+            this.closeSession();
         }
     }
 
@@ -143,12 +144,23 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
-        try {
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            // Do nothing
+    }
+
+    /**
+     * Closes current suer session if one is open
+     * @return true if session closed with success, false otherwise
+     */
+    public boolean closeSession() {
+        if(isSessionOpen()) {
+            try {
+                this.userSession.close();
+                return true;
+            } catch (IOException e) {
+                LOGGER.warning("Could not close user session.");
+                return false;
+            }
         }
-        this.connect();
+        return false;
     }
 
     /**
@@ -164,7 +176,7 @@ public class WsImp {
      *
      * @param message - message to be sent
      */
-    protected void sendMessage(String message) {
+    public void sendMessage(String message) {
         this.userSession.getAsyncRemote().sendText(message);
     }
 }

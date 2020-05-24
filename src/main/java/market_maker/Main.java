@@ -1,7 +1,7 @@
 package market_maker;
 
+import bitmex.ws.WsImp;
 import com.google.gson.Gson;
-import utils.MathCustom;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -23,11 +23,9 @@ public class Main {
         //swGvEbz7gQG1uAFRMheNby3D
         //0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ
 
-        //WsImp ws = null;
-         //ws = new WsImp(null,false, "swGvEbz7gQG1uAFRMheNby3D",
-         //"0e2uBzGI_A1PpGqPiaY3hxY9nqhHFv4jyAbt38SbP7Q73DHJ", "XBTM20");
-        float[] arr = new float[]{9878.4f, 9132.9f, 8596.2f, 12509.4f, 10000f};
-        System.out.println(MathCustom.calculateMedian(arr));
+       // bitstamp.WsImp ws = null;
+        new WsImp(null, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, "XBTUSD");
+
     }
 }
 

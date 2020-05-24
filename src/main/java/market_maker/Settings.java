@@ -8,8 +8,8 @@ public class Settings {
     public static final String ORDER_ID_PREFIX = "mmbitmex";
 
     // Authentication
-    public static final String API_KEY = "9FHB_Fh_PU9NWjh4tVcM900f";
-    public static final String API_SECRET = "4zfsknP2_mPRoCdmiFmDHvdtjyfi-8b5prEL0MWU04r0tLhb";
+    public static final String API_KEY = "PIrle0KczKUZdAt4rtKZSUdI";
+    public static final String API_SECRET = "VewvFl3tbdirJ_yKaJs9OZXr0srqLo3L08PHFt6eHk1h3Tk3";
 
     // Market making configuration
     public static final long ORDER_SIZE = 10;

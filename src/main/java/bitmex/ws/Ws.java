@@ -24,6 +24,12 @@ public interface Ws {
     boolean isSessionOpen();
 
     /**
+     * Closes current suer session if one is open
+     * @return true if session closed with success, false otherwise
+     */
+    boolean closeSession();
+
+    /**
      * Gets size of level2 orderBook row with price == 'price'
      *
      * @param price - price of row to query

@@ -14,7 +14,10 @@ import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.FileHandler;
+import java.util.logging.Handler;
 import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 
 class ExchangeInterface {
     // Funding interval of perpetual swaps on miliseconds
@@ -172,7 +175,11 @@ class ExchangeInterface {
      * @return position size
      */
     protected long get_position() {
-        return this.mexWs.get_position().get(0).getAsJsonObject().get("currentQty").getAsLong();
+        JsonElement currQty = this.mexWs.get_position().get(0).getAsJsonObject().get("currentQty");
+        if (currQty != null)
+            return currQty.getAsLong();
+        else
+            return 0L;
     }
 
     /**
@@ -217,6 +224,16 @@ class ExchangeInterface {
     protected float get_margin_used() {
         JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
         return 1f - (margin.get("availableMargin").getAsFloat() / margin.get("marginBalance").getAsFloat());
+    }
+
+    /**
+     * Get margin balance on account
+     *
+     * @return margin balance
+     */
+    protected float get_margin_balance() {
+        JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
+        return margin.get("marginBalance").getAsFloat();
     }
 
     /**
@@ -560,6 +577,7 @@ class MarketMakerManager {
 
     private void print_status() {
         LOGGER.info(String.format("Position: %d", e.get_position()));
+        LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
         LOGGER.info(String.format("Margin used: %f", e.get_margin_used()));
         LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
@@ -670,7 +688,7 @@ class IndexCheckThread extends Thread {
             float median = MathCustom.calculateMedian(newData);
             for (i = 0; i < newData.length; i++) {
                 if (newData.length == 1) {  // if index has one constituent
-                    if (MarketMakerManager.get_spread_abs(newData[i], currPrices[i]) >= 0.25f){
+                    if (MarketMakerManager.get_spread_abs(newData[i], currPrices[i]) >= 0.25f) {
                         LOGGER.warning(String.format("[%s] The constituent differs from last constituent for more than 25%. Using last price.", e.spotPrices.get_exchanges_refs()[i]));
                         newData[i] = currPrices[i];
                     }
@@ -683,7 +701,7 @@ class IndexCheckThread extends Thread {
                             LOGGER.warning(String.format("[%s] The constituent differs from the median of the index by 25%. Removing this constituent from the index.", e.spotPrices.get_exchanges_refs()[i]));
                             medianWeights[i] = e.weights.get(i);
                             e.weights.set(i, 0.0f);
-                        } else if (medianWeights[i] > 0) {
+                        } else if (medianWeights[i] > 0.0f) {
                             LOGGER.warning(String.format("[%s]  The constituent returns to the index, price differs from the median by less than 25%.", e.spotPrices.get_exchanges_refs()[i]));
                             e.weights.set(i, e.weights.get(i) + medianWeights[i]);
                             medianWeights[i] = -1f;
@@ -709,10 +727,26 @@ public class MarketMaker {
 
     public static void main(String[] args) {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
-        MarketMakerManager m = new MarketMakerManager(Settings.SYMBOL);
+        loggingConfig();
+        LOGGER.info(String.format("Starting execution in %s", Settings.SYMBOL));
+        new MarketMakerManager(Settings.SYMBOL);
     }
 
-    private void fileWatcher() throws IOException, InterruptedException {
+    private static void loggingConfig() {
+        Logger log = Logger.getLogger("");
+        Handler fileHandler = null;
+        try {
+            fileHandler = new FileHandler(String.format("./logs/%s.log", Settings.SYMBOL));
+            SimpleFormatter simple = new SimpleFormatter();
+            fileHandler.setFormatter(simple);
+
+            log.addHandler(fileHandler);//adding Handler for file
+        } catch (IOException e) {
+            // Do nothing
+        }
+    }
+
+    private static void fileWatcher() throws IOException, InterruptedException {
         WatchService watchService
                 = FileSystems.getDefault().newWatchService();
 
@@ -730,8 +764,7 @@ public class MarketMaker {
             Thread.sleep(3000);
             for (WatchEvent<?> event : key.pollEvents()) {
                 String fileChanged = event.context().toString();
-                if (!fileChanged.equals("logs"))
-                    LOGGER.warning("Event kind:" + event.kind() + ". File affected: " + fileChanged);
+                LOGGER.warning("Event kind:" + event.kind() + ". File affected: " + fileChanged);
             }
             key.reset();
         }

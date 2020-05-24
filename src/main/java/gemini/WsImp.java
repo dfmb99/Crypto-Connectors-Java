@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
 import javax.websocket.*;
+import java.io.IOException;
 import java.net.URI;
 import java.util.logging.Logger;
 
@@ -26,7 +27,7 @@ class HeartbeatThread extends Thread {
         while (!Thread.interrupted()) {
             if (System.currentTimeMillis() - startTime > 10000) {
                 LOGGER.fine("Heartbeat thread reconnecting.");
-                this.ws.connect();
+                this.ws.closeSession();
                 this.interrupt();
             }
         }
@@ -180,7 +181,7 @@ public class WsImp {
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            this.connect();
+            this.closeSession();
         }
     }
 
@@ -192,12 +193,23 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
-        try {
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            // Do nothing
+    }
+
+    /**
+     * Closes current suer session if one is open
+     * @return true if session closed with success, false otherwise
+     */
+    public boolean closeSession() {
+        if(isSessionOpen()) {
+            try {
+                this.userSession.close();
+                return true;
+            } catch (IOException e) {
+                LOGGER.warning("Could not close user session.");
+                return false;
+            }
         }
-        this.connect();
+        return false;
     }
 
     /**
