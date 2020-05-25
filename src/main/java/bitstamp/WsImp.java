@@ -15,11 +15,14 @@ public class WsImp {
     private final static String URL = "wss://ws.bitstamp.net";
     private final static int RETRY_PERIOD = 3000;
     private final static int MAX_LATENCY = 15000;
+    private final static int FORCE_RECONNECT_INTERVAL = 60000;
 
     private final WebSocketContainer container;
     private Session userSession;
     private final String symbol;
     private float lastPrice;
+    // last force reconnect timestamp
+    private long lastReconnectStamp;
 
     /**
      * Bitstamp web socket client implementation for one symbol
@@ -28,6 +31,7 @@ public class WsImp {
         this.container = ContainerProvider.getWebSocketContainer();
         this.lastPrice = -1f;
         this.symbol = symbol;
+        this.lastReconnectStamp = 0L;
         this.connect();
         this.waitForData();
     }
@@ -110,8 +114,9 @@ public class WsImp {
      */
     private void check_latency(long timestamp) {
         long latency = System.currentTimeMillis() - timestamp;
-        if( latency > MAX_LATENCY) {
+        if( latency > MAX_LATENCY && System.currentTimeMillis() > lastReconnectStamp + FORCE_RECONNECT_INTERVAL) {
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+            lastReconnectStamp = System.currentTimeMillis();
             this.closeSession();
         }
     }
@@ -144,6 +149,8 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
+        this.userSession = null;
+        this.connect();
     }
 
     /**

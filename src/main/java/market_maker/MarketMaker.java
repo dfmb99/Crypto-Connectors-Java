@@ -14,7 +14,6 @@ import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
@@ -35,13 +34,11 @@ class ExchangeInterface {
     // class that deals with ticker data on other exchanges
     protected SpotPricesTracker spotPrices;
     // array that stores exchanges weights that are used as index in our symbol
-    protected List<Float> weights;
+    private List<Float> weights;
     // Underlying symbol of contract
     private String underlyingSymbol;
     // if perpetual contract null, otherwise date of expiration
     private final String expiry;
-    // Thread that checks updates from other exchanges too see if data is valid and updates weights accordingly
-    private IndexCheckThread indexThread;
     // timestamp on where indexes weights are updated
     protected long nextIndexUpdate;
     // tickSize of contract
@@ -53,7 +50,6 @@ class ExchangeInterface {
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
         this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, symbol);
         this.spotPrices = new SpotPricesTracker(symbol);
-        this.indexThread = null;
 
         // Initial data
         JsonObject instrument = mexWs.get_instrument().get(0).getAsJsonObject();
@@ -76,6 +72,11 @@ class ExchangeInterface {
     }
 
     /**
+     * Gets instrument state
+     */
+    protected String get_instrument_state() { return this.mexRest.get_instrument(this.symbol).get(0).getAsJsonObject().get("state").getAsString(); }
+
+    /**
      * Returns tick size of contract
      *
      * @return tickSize as float
@@ -88,15 +89,11 @@ class ExchangeInterface {
      * Get current instrument indixes composition and weights
      */
     protected void get_instrument_composite_index() {
-        // Interrupts index thread if thread exists
-        if (this.indexThread != null && !this.indexThread.isInterrupted())
-            this.indexThread.interrupt();
-
         this.nextIndexUpdate = TimeStamp.getTimestamp(this.mexRest.get_instrument("XBT:quarterly").get(0).getAsJsonObject().get("expiry").getAsString());
         // request to know composition of index on the symbol we are quoting
         JsonArray compIndRes = mexRest.get_instrument_compositeIndex(underlyingSymbol);
         List<String> exchangeRefs = new ArrayList<>();
-        this.weights = new CopyOnWriteArrayList<>();
+        this.weights = new ArrayList<>();
         for (JsonElement elem : compIndRes) {
             JsonObject obj = elem.getAsJsonObject();
             String reference = obj.get("reference").getAsString();
@@ -107,8 +104,6 @@ class ExchangeInterface {
         }
 
         spotPrices.addExchanges(exchangeRefs.toArray(new String[0]));
-        // creates new indexThread
-        this.indexThread = new IndexCheckThread(this);
     }
 
     /**
@@ -138,6 +133,17 @@ class ExchangeInterface {
         return (get_ask_price() + get_bid_price()) / 2;
     }
 
+    /**
+     * Gets mark price from BitMex websocket
+     */
+    protected float get_ws_mark_price() {
+        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("markPrice").getAsFloat();
+    }
+
+    /**
+     * Calculates and returns mark price from spot exchanges data
+     * @return mark price
+     */
     protected float get_mark_price() {
         /*
          * (For perpetual swaps)
@@ -225,11 +231,19 @@ class ExchangeInterface {
         JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
         String[] toCancel = new String[openOrders.size()];
 
-        for (int i = 0; i < openOrders.size(); i++) {
+        for (int i = 0; i < openOrders.size(); i++)
             toCancel[i] = openOrders.get(i).getAsJsonObject().get("orderID").toString();
-        }
 
         params.addProperty("orderID", Arrays.toString(toCancel));
+        if(toCancel.length > 0)
+            this.mexRest.del_order(params);
+    }
+
+    /**
+     * Cancel orders passed on params
+     * @param params - orders IDs to be canceled
+     */
+    protected void cancel_orders(JsonObject params) {
         this.mexRest.del_order(params);
     }
 
@@ -353,10 +367,12 @@ class MarketMakerManager {
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
     private final ExchangeInterface e;
     private String symbol;
+    private long sanityCheckStamp;
 
     public MarketMakerManager(String symbol) {
         e = new ExchangeInterface(symbol);
         this.symbol = symbol;
+        sanityCheckStamp = System.currentTimeMillis() + Settings.SANITY_CHECK_INTERVAL;
         run_loop();
     }
 
@@ -462,17 +478,38 @@ class MarketMakerManager {
      */
     private float[] get_new_order_prices() {
         float[] prices = new float[2];
-        float quoteMidPrice = e.get_mark_price() * (1f + get_position_skew());
+
+        float quoteMidPrice = get_mark_price() * (1f + get_position_skew());
         prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - get_spread_index()), e.get_tickSize());
         prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + get_spread_index()), e.get_tickSize());
         return prices;
     }
 
     /**
+     * Gets mark price to be used in algorithm calculations
+     * @return mark price
+     */
+    private float get_mark_price() {
+        // mark price calculated by algorithm
+        float calculatedMarkPrice = e.get_mark_price();
+        // mark price received in bitmex websocket
+        float wsMarkPrice = e.get_ws_mark_price();
+        // spread between calculated mark price and mark price received by websocket
+        float spread = get_spread_abs(calculatedMarkPrice, wsMarkPrice);
+
+        if( spread > 0.005f) {
+            LOGGER.info(String.format("Using mark price from BitMex websocket: (websocket) %f, (calculated) %f, (spread) %f", wsMarkPrice, calculatedMarkPrice, spread));
+            return wsMarkPrice;
+        }
+
+        return calculatedMarkPrice;
+    }
+
+    /**
      * Checks current order spreads to markPrice, and amends them if necessary
      */
     private void check_current_spread() throws InterruptedException {
-        float fairPrice = e.get_mark_price();
+        float fairPrice = get_mark_price();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
@@ -548,14 +585,14 @@ class MarketMakerManager {
         if (topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], e.get_mark_price())));
+            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], get_mark_price())));
 
             // amends current sell order if there is a sell order opened
             if (topBookOrds[1].keySet().size() > 0) {
                 JsonObject newSell = new JsonObject();
                 newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
                 newSell.addProperty("price", newPrices[1]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newPrices[1], get_spread(newPrices[1], e.get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newPrices[1], get_spread(newPrices[1], get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newSell);
             }
@@ -565,14 +602,14 @@ class MarketMakerManager {
         if (topBookOrds[1].keySet().size() < 1 && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], e.get_mark_price())));
+            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], get_mark_price())));
 
             // amends current buy order if there is a buy order opened
             if (topBookOrds[0].keySet().size() > 0) {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
                 newBuy.addProperty("price", newPrices[0]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread_abs(newPrices[0], e.get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread_abs(newPrices[0], get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
@@ -588,15 +625,57 @@ class MarketMakerManager {
         }
     }
 
-
     protected void cancel_all_orders() {
         LOGGER.info("Canceling all open orders.");
         e.cancel_all_orders();
     }
 
     private void sanity_check() {
-        // check amount of orders, and cancel if too many
-        // check mark price diff from markPrice of mex
+        JsonArray[] openOrders = e.get_open_orders();
+        List<String> toCancel = new ArrayList<>();
+
+        if(!e.get_instrument_state().equals("Open")) {
+            LOGGER.warning(String.format("Instrument %s is not open.", this.symbol));
+            System.exit(1);
+        }else if(short_position_limit_exceeded()) {
+            LOGGER.warning("Short delta limit exceeded.");
+            LOGGER.warning(String.format("Current position: %d Minimum position: %d", e.get_position(), Settings.MIN_POSITION));
+            e.cancel_all_orders();
+            System.exit(1);
+        }else if(long_position_limit_exceeded()) {
+            LOGGER.warning("Long delta limit exceeded.");
+            LOGGER.warning(String.format("Current position: %d Maximum position: %d", e.get_position(), Settings.MAX_POSITION));
+            e.cancel_all_orders();
+            System.exit(1);
+        } else if(openOrders[0].size() > 1) { // checks how many bids on the orderbook
+            LOGGER.warning(String.format("%d buy orders will be canceled.", openOrders[0].size() - 1));
+
+            // highest buy orderID
+            String highestBuyID = e.get_topBook_orders()[0].get("orderID").toString();
+            for(JsonElement elem: openOrders[0]) {
+                String orderID = elem.getAsJsonObject().get("orderID").toString();
+                if(!highestBuyID.equals(orderID))
+                    toCancel.add(orderID);
+            }
+        } else if(openOrders[1].size() > 1) { // checks how many asks on the orderbook
+            LOGGER.warning(String.format("%d ask orders will be canceled.", openOrders[1].size() - 1));
+
+            // lowest sell orderID
+            String lowestSellID = e.get_topBook_orders()[1].get("orderID").toString();
+            for(JsonElement elem: openOrders[1]) {
+                String orderID = elem.getAsJsonObject().get("orderID").toString();
+                if(!lowestSellID.equals(orderID))
+                    toCancel.add(orderID);
+            }
+        }
+
+        if(toCancel.size() > 0) {
+            JsonObject obj = new JsonObject();
+            String[] params = new String[toCancel.size()];
+            toCancel.toArray(params);
+            obj.addProperty("orderID", Arrays.toString(params));
+            e.cancel_orders(obj);
+        }
 
     }
 
@@ -606,7 +685,7 @@ class MarketMakerManager {
         LOGGER.info(String.format("Position: %d", e.get_position()));
         LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
         LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
-        LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
+        LOGGER.info(String.format("Fair price: %f", get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
         LOGGER.info(String.format("Skew: %f", get_position_skew()));
         LOGGER.info(String.format("Open orders: bids %d, asks %d", openOrders[0].size(), openOrders[1].size() ));
@@ -615,134 +694,26 @@ class MarketMakerManager {
     private void run_loop() {
         while (true) {
             try {
+                //sanity check
+                long now = System.currentTimeMillis();
+                if(System.currentTimeMillis() > sanityCheckStamp) {
+                    sanityCheckStamp = sanityCheckStamp + Settings.SANITY_CHECK_INTERVAL;
+                    sanity_check();
+                }
+
+                // Indexes weights get updated after quarterly futures expiry + 5 seconds
+                if (System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
+                    LOGGER.info("New quarterly expiry, updating index weights.");
+                    e.get_instrument_composite_index();
+                }
+
+                // if websocket connection open update orders
                 if (e.isWebsocketOpen()) {
                     converge_orders();
                     Thread.sleep(Settings.LOOP_INTERVAL);
                 }
             } catch (InterruptedException interruptedException) {
                 // Do nothing
-            }
-        }
-    }
-}
-
-/**
- * Heartbeat thread that checks price feeds from other exchanges
- */
-class IndexCheckThread extends Thread {
-    private final static Logger LOGGER = Logger.getLogger(IndexCheckThread.class.getName());
-
-    private final ExchangeInterface e;
-    // updated prices
-    private float[] currPrices;
-    // original exchange weights
-    private final float[] origWeights;
-    // exchange weights stored when using the median algorithm
-    private final float[] medianWeights;
-    // updated timestamps
-    private final long[] timeStamps;
-    // number of active indexes
-    private int activeIndexes;
-
-    public IndexCheckThread(ExchangeInterface e) {
-        this.e = e;
-        currPrices = e.spotPrices.get_last_price();
-        int weightsSize = e.weights.size();
-        origWeights = new float[weightsSize];
-        medianWeights = new float[weightsSize];
-        timeStamps = new long[weightsSize];
-        long now = System.currentTimeMillis();
-        for (int i = 0; i < origWeights.length; i++) {
-            origWeights[i] = e.weights.get(i);
-            medianWeights[i] = -1f;
-            timeStamps[i] = now;
-        }
-        activeIndexes = origWeights.length;
-        this.start();
-    }
-
-    @Override
-    public void run() {
-        float[] newData;
-        int i;
-        long now;
-        while (!Thread.interrupted()) {
-            now = System.currentTimeMillis();
-            newData = e.spotPrices.get_last_price();
-
-            // Indexes weights get updated after quarterly futures expiry + 5 seconds
-            if (System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
-                LOGGER.info("New quarterly expiry, updating index weights.");
-                this.interrupt();
-                e.get_instrument_composite_index();
-            }
-
-            float remW = 0.0f;
-            for (i = 0; i < currPrices.length; i++) {
-                // if data received is different than data we have, update timestamp array
-                if (newData[i] != currPrices[i]) {
-                    timeStamps[i] = now;
-                    if (e.weights.get(i) == 0.0f) {
-                        float v = origWeights[i] / (float) activeIndexes;
-                        LOGGER.warning(String.format("Exchange \"%s\" updated price, re-adding to index", e.spotPrices.get_exchanges_refs()[i]));
-                        for (int j = 0; j < currPrices.length; j++) {
-                            float k = e.weights.get(j);
-                            if (k > 0.0f)
-                                e.weights.set(j, k - v);
-                        }
-                        e.weights.set(i, origWeights[i]);
-                    }
-                }
-                //check if index needs to be removed
-                if (System.currentTimeMillis() - timeStamps[i] > 900000) {
-                    LOGGER.warning(String.format("Removing exchange \"%s\" from index, due to not receiving price updates for 15 minutes.", e.spotPrices.get_exchanges_refs()[i]));
-                    activeIndexes--;
-                    //removed weight needs to be distributed by the rest
-                    remW += e.weights.get(i);
-                    // set this weight to 0
-                    e.weights.set(i, 0.0f);
-                }
-            }
-            if (remW > 0.0f) {
-                float addedWeights = remW / (float) activeIndexes;
-                for (i = 0; i < currPrices.length; i++) {
-                    float v = e.weights.get(i);
-                    if (v > 0.0f)
-                        e.weights.set(i, v + addedWeights);
-                }
-            }
-
-            float median = MathCustom.calculateMedian(newData);
-            for (i = 0; i < newData.length; i++) {
-                if (newData.length == 1) {  // if index has one constituent
-                    if (MarketMakerManager.get_spread_abs(newData[i], currPrices[i]) >= 0.25f) {
-                        LOGGER.warning(String.format("[%s] The constituent differs from last constituent for more than 25%. Using last price.", e.spotPrices.get_exchanges_refs()[i]));
-                        newData[i] = currPrices[i];
-                    }
-                } else if (newData.length == 2) { // if index has two constituents
-                    if (MarketMakerManager.get_spread_abs(newData[i], median) >= 0.125f) {
-                        LOGGER.warning(String.format("[%s] The constituent differs from median constituent for more than 12.5%. Using last prices.", e.spotPrices.get_exchanges_refs()[i]));
-                        newData[i] = currPrices[i];
-                    } else { // if index has three or more constituents
-                        if (MarketMakerManager.get_spread_abs(newData[i], median) >= 0.25f) {
-                            LOGGER.warning(String.format("[%s] The constituent differs from the median of the index by 25%. Removing this constituent from the index.", e.spotPrices.get_exchanges_refs()[i]));
-                            medianWeights[i] = e.weights.get(i);
-                            e.weights.set(i, 0.0f);
-                        } else if (medianWeights[i] > 0.0f) {
-                            LOGGER.warning(String.format("[%s]  The constituent returns to the index, price differs from the median by less than 25%.", e.spotPrices.get_exchanges_refs()[i]));
-                            e.weights.set(i, e.weights.get(i) + medianWeights[i]);
-                            medianWeights[i] = -1f;
-                        }
-                    }
-                }
-
-                currPrices = newData.clone();
-
-                try {
-                    Thread.sleep(5000);
-                } catch (InterruptedException e) {
-                    //Do nothing
-                }
             }
         }
     }

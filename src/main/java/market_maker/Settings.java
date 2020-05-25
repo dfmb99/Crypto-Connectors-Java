@@ -23,7 +23,9 @@ public class Settings {
     // How long to wait in each cycle to check / post orders
     public static final int LOOP_INTERVAL = 500;
     // How long to wait after placing / amending orders
-    public static final int REST_INTERVAL = 2000;
+    public static final int REST_INTERVAL = 3000;
+    // How often to perform sanity checks
+    public static long SANITY_CHECK_INTERVAL = 60000;
 
     // Minimum spread in ticks
     public static final int MIN_SPREAD_TICKS = 10;

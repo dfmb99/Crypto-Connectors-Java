@@ -131,7 +131,6 @@ public class WsImp {
                 this.tickerID = response.get("channelID").getAsInt();
             else if(response.has("event") && response.get("event").getAsString().equalsIgnoreCase("error"))
                 LOGGER.warning(response.get("errorMessage").getAsString());
-
         } else {
             LOGGER.fine("Received ticker data.");
             JsonArray dataArr = JsonParser.parseString(message).getAsJsonArray();
@@ -178,6 +177,8 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
+        this.userSession = null;
+        this.connect();
     }
 
     /**

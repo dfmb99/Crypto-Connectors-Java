@@ -97,6 +97,8 @@ public class WsImp implements Ws {
     // structure to store web socket data in local storage
     private final Map<String, JsonArray> data;
     private HeartbeatThread heartbeatThread;
+    // last force reconnect timestamp
+    private long lastReconnectStamp;
 
     /**
      * BitMex web socket client implementation for one symbol
@@ -120,6 +122,7 @@ public class WsImp implements Ws {
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
         this.symbol = symbol;
+        this.lastReconnectStamp = 0L;
         this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
                 "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
         this.connect();
@@ -208,6 +211,8 @@ public class WsImp implements Ws {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
+        this.userSession = null;
+        this.connect();
     }
 
     @Override
@@ -321,11 +326,12 @@ public class WsImp implements Ws {
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
         long latency = System.currentTimeMillis() - updateTime;
-        if( latency > Ws.MAX_LATENCY) {
+        if( latency > Ws.MAX_LATENCY && System.currentTimeMillis() > lastReconnectStamp + Ws.FORCE_RECONNECT_INTERVAL) {
             if (!this.heartbeatThread.isInterrupted())
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+            lastReconnectStamp = System.currentTimeMillis();
             // closes current websocket connection
             this.closeSession();
         }

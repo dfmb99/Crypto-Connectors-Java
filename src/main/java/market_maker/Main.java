@@ -1,9 +1,11 @@
 package market_maker;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 
 import java.io.IOException;
 import java.text.ParseException;
+import java.util.Arrays;
 import java.util.logging.Logger;
 
 public class Main {
@@ -25,35 +27,13 @@ public class Main {
         // bitstamp.WsImp ws = null;
         //new WsImp(null, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, "XBTUSD");
 
-        ExecThread t = new ExecThread();
-        Thread.sleep(10000);
-        t.interrupt();
+        JsonObject params = new JsonObject();
+        String[] toCancel = new String[]{"asdadasdgs", "asgsdfgfda3223"};
 
-
-        while(true) {
-            System.out.println("MAIN");
-            Thread.sleep(1000);
-        }
-    }
-}
-
-class ExecThread extends Thread {
-    public ExecThread() {
-        this.start();
+        params.addProperty("orderID", Arrays.toString(toCancel));
+        System.out.println(params.toString().replace("\"[", "[").replace("]\"","]"));
     }
 
-    @Override
-    public void run() {
-        while(!this.isInterrupted()) {
-            System.out.println("Running algo");
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                this.interrupt();
-            }
-        }
-        System.out.println("Cancel orders");
-    }
 }
 
 

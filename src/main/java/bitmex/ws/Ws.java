@@ -16,6 +16,7 @@ public interface Ws {
     int EXEC_MAX_LEN = 100;
     int RETRY_PERIOD = 3000;
     int MAX_LATENCY = 15000;
+    int FORCE_RECONNECT_INTERVAL = 60000;
 
     /**
      * Returns true if websocket connection is open, false otherwise

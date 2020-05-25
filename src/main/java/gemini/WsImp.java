@@ -42,6 +42,7 @@ public class WsImp {
     private final static String QUERY = "?heartbeat=true&trades=true";
     private static final int MAX_LATENCY = 15000;
     private final static int RETRY_PERIOD = 3000;
+    private final static int FORCE_RECONNECT_INTERVAL = 60000;
 
     private final WebSocketContainer container;
     private HeartbeatThread heartbeatThread;
@@ -51,6 +52,8 @@ public class WsImp {
     private float lastPrice;
     // last sequence number of ticker
     private long seqNum;
+    // last force reconnect timestamp
+    private long lastReconnectStamp;
 
     /**
      * Gemini web socket client implementation for one symbol
@@ -61,6 +64,7 @@ public class WsImp {
         this.lastPrice = -1f;
         this.seqNum = -1L;
         this.symbol = symbol;
+        this.lastReconnectStamp = 0L;
         this.connect();
         this.waitForData();
     }
@@ -176,11 +180,12 @@ public class WsImp {
      */
     private void check_latency(long updateTime) {
         long latency = System.currentTimeMillis() - updateTime;
-        if (latency > MAX_LATENCY) {
+        if (latency > MAX_LATENCY && System.currentTimeMillis() > lastReconnectStamp + FORCE_RECONNECT_INTERVAL) {
             if (!this.heartbeatThread.isInterrupted())
                 this.heartbeatThread.interrupt();
             this.heartbeatThread = null;
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+            lastReconnectStamp = System.currentTimeMillis();
             this.closeSession();
         }
     }
@@ -193,6 +198,8 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
+        this.userSession = null;
+        this.connect();
     }
 
     /**

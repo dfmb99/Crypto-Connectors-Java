@@ -74,12 +74,18 @@ public class RestImp implements Rest {
                 .header("content-type", "application/json; charset=utf-8")
                 .header("connection", "keep-alive");
 
+        /** Validates data
+         * Original: {"orderID":"[\"88dd843b-80a5-afcc-d8f4-5985f4c0f734\", \"7f4788f4-af46-a8e9-5304-d8df5a1f66d3\"]"}
+         * After validation: {"orderID": ["88dd843b-80a5-afcc-d8f4-5985f4c0f734", "7f4788f4-af46-a8e9-5304-d8df5a1f66d3"]
+         */
+        String validDataStr = data.toString().replace("\"[", "[").replace("]\"","]").replace("\\", "");
+
         long expires = Auth.generate_expires();
         URI uri = target.getUri();
         String sigData = String.format("%s%s%s%s%s", verb, uri.getPath() == null ? "" : uri.getPath(),
                 uri.getQuery() == null ? "" : "?" + uri.toString().split("\\?")[1], expires, verb.equalsIgnoreCase(
                         "GET") ? "" :
-                        data.toString());
+                        validDataStr);
         String signature = Auth.encode_hmac(apiSecret, sigData);
         httpReq = httpReq
                 .header("api-expires", expires)
@@ -93,11 +99,11 @@ public class RestImp implements Rest {
                 if (verb.equalsIgnoreCase("GET"))
                     r = httpReq.get();
                 else if (verb.equalsIgnoreCase("POST"))
-                    r = httpReq.post(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
+                    r = httpReq.post(Entity.entity(validDataStr, MediaType.APPLICATION_JSON));
                 else if (verb.equalsIgnoreCase("PUT"))
-                    r = httpReq.put(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
+                    r = httpReq.put(Entity.entity(validDataStr, MediaType.APPLICATION_JSON));
                 else if (verb.equalsIgnoreCase("DELETE"))
-                    r = httpReq.build("DELETE", Entity.entity(data.toString(), MediaType.APPLICATION_JSON)).invoke();
+                    r = httpReq.build("DELETE", Entity.entity(validDataStr, MediaType.APPLICATION_JSON)).invoke();
 
                 assert r != null;
                 int status = r.getStatus();
