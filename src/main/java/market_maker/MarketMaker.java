@@ -5,6 +5,7 @@ import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import utils.MathCustom;
 import utils.SpotPricesTracker;
 import utils.TimeStamp;
@@ -197,7 +198,7 @@ class ExchangeInterface {
     protected JsonArray rest_get_open_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        params.addProperty("filter", "{\"ordStatus.isTerminated\": false}");
+        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
         params.addProperty("count", 100);
         params.addProperty("reverse", true);
         return this.mexRest.get_order(params);
@@ -367,12 +368,16 @@ class MarketMakerManager {
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
     private final ExchangeInterface e;
     private String symbol;
+    // sanity checks are made when this timestamp is hit
     private long sanityCheckStamp;
+    // mark price warning logs are made when this timestamp is hit
+    private long markPriceLogStamp;
 
     public MarketMakerManager(String symbol) {
         e = new ExchangeInterface(symbol);
         this.symbol = symbol;
         sanityCheckStamp = System.currentTimeMillis() + Settings.SANITY_CHECK_INTERVAL;
+        markPriceLogStamp = 0L;
         run_loop();
     }
 
@@ -498,7 +503,11 @@ class MarketMakerManager {
         float spread = get_spread_abs(calculatedMarkPrice, wsMarkPrice);
 
         if( spread > 0.005f) {
-            LOGGER.info(String.format("Using mark price from BitMex websocket: (websocket) %f, (calculated) %f, (spread) %f", wsMarkPrice, calculatedMarkPrice, spread));
+            // to prevent spam of logging messages (only prints every x ms depending on user settings)
+            if(System.currentTimeMillis() > markPriceLogStamp) {
+                markPriceLogStamp = markPriceLogStamp + Settings.MARK_PRICE_LOG_INTERVAL;
+                LOGGER.info(String.format("Using mark price from BitMex websocket: (websocket) %f, (calculated) %f, (spread) %f", wsMarkPrice, calculatedMarkPrice, spread));
+            }
             return wsMarkPrice;
         }
 
@@ -546,8 +555,8 @@ class MarketMakerManager {
 
         if (!Settings.DRY_RUN && orders.size() > 0) {
             e.amend_order_bulk(orders);
-            print_status();
             Thread.sleep(Settings.REST_INTERVAL);
+            print_status();
         }
     }
 

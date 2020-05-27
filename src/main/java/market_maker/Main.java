@@ -1,11 +1,11 @@
 package market_maker;
 
+import bitmex.ws.Ws;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 
 import java.io.IOException;
 import java.text.ParseException;
-import java.util.Arrays;
 import java.util.logging.Logger;
 
 public class Main {
@@ -28,10 +28,12 @@ public class Main {
         //new WsImp(null, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, "XBTUSD");
 
         JsonObject params = new JsonObject();
-        String[] toCancel = new String[]{"asdadasdgs", "asgsdfgfda3223"};
+        params.addProperty("symbol", "XBTUSD");
+        params.addProperty("filter", "{\"ordStatus.isTerminated\": false}");
+        params.addProperty("count", Ws.ORDER_MAX_LEN);
+        params.addProperty("reverse", true);
 
-        params.addProperty("orderID", Arrays.toString(toCancel));
-        System.out.println(params.toString().replace("\"[", "[").replace("]\"","]"));
+        System.out.println(params.get("filter"));
     }
 
 }

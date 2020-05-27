@@ -151,7 +151,7 @@ public class WsImp implements Ws {
         if (this.data.containsKey("order"))
             this.orderQueue = new OrderAsyncThread(this);
         if(this.data.containsKey("tradeBin1m") && this.rest != null)
-            this.data.put("tradeBin1m", this.get_last_1mCandles());
+            this.data.put("tradeBin1m", this.get_rest_last_1mCandles());
     }
 
     /**
@@ -181,6 +181,8 @@ public class WsImp implements Ws {
         LOGGER.info(String.format("Connected to: %s", this.url));
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
+        // gets open orders for this symbol and updates memory
+        this.data.put("order", this.get_rest_open_orders());
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
         sendMessage(String.format("{\"op\": \"authKeyExpires\", \"args\": [\"%s\", %d, \"%s\"]}", apiKey, expires, signature));
@@ -321,7 +323,7 @@ public class WsImp implements Ws {
 
     /**
      * Checks latency on a websocket update
-     * @param timestamp - timestamp of lasst update
+     * @param timestamp - timestamp of last update
      */
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
@@ -488,8 +490,11 @@ public class WsImp implements Ws {
         JsonArray orderData = this.data.get("order");
         JsonArray data = obj.get("data").getAsJsonArray();
         if (obj.get("action").getAsString().equals("insert")) {
-            for (JsonElement elem : data)
+            for (JsonElement elem : data) {
+                if (orderData.size() == Ws.ORDER_MAX_LEN)
+                    orderData.remove(0);
                 orderData.add(elem);
+            }
         } else if (obj.get("action").getAsString().equals("update")) {
             //copy of orderData to prevent ConcurrentModification Exception
             JsonArray orderDataCopy = JsonParser.parseString(orderData.toString()).getAsJsonArray();
@@ -518,13 +523,18 @@ public class WsImp implements Ws {
                                 if (!objRec.get(key).isJsonNull())
                                     elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
                             }
+                            if (orderData.size() == Ws.ORDER_MAX_LEN)
+                                orderData.remove(0);
                             orderData.add(elemOrig);
                         }
                         break;
                     }
                 }
-                if (!orderMatchFound && (ordStatus == null || ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
+                if (!orderMatchFound && (ordStatus == null || ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled"))) {
+                    if (orderData.size() == Ws.ORDER_MAX_LEN)
+                        orderData.remove(0);
                     orderData.add(elemRec);
+                }
             }
         }
     }
@@ -589,10 +599,23 @@ public class WsImp implements Ws {
     }
 
     /**
+     * Makes api rest call to get open orders
+     * @return Returns open orders for current symbol
+     */
+    private JsonArray get_rest_open_orders() {
+        JsonObject params = new JsonObject();
+        params.addProperty("symbol", this.symbol);
+        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
+        params.addProperty("count", Ws.ORDER_MAX_LEN);
+        params.addProperty("reverse", true);
+        return this.rest.get_order(params);
+    }
+
+    /**
      * Makes api rest call to get last trade bucketed data
      * @return Returns last candles data for current symbol
      */
-    public JsonArray get_last_1mCandles() {
+    private JsonArray get_rest_last_1mCandles() {
         JsonObject params = new JsonObject();
         params.addProperty("binSize", "1m");
         params.addProperty("symbol", this.symbol);

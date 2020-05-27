@@ -8,11 +8,11 @@ public class Settings {
     public static final String ORDER_ID_PREFIX = "mmbitmex";
 
     // Authentication
-    public static final String API_KEY = "PIrle0KczKUZdAt4rtKZSUdI";
-    public static final String API_SECRET = "VewvFl3tbdirJ_yKaJs9OZXr0srqLo3L08PHFt6eHk1h3Tk3";
+    public static final String API_KEY = "BBrHGnYtSSpVJtl2rlURi1l-";
+    public static final String API_SECRET = "saDKViICSfdIRzOMhhOVqs7rrgnsOItT__XsW04WQ1o7tBzA";
 
     // Market making configuration
-    public static final long ORDER_SIZE = 10;
+    public static final long ORDER_SIZE = 10L;
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
     public static final float SPREAD_INDEX = 40f;
     public static final int SPREAD_SNAPS = (int) (SPREAD_INDEX * 2);
@@ -25,13 +25,15 @@ public class Settings {
     // How long to wait after placing / amending orders
     public static final int REST_INTERVAL = 3000;
     // How often to perform sanity checks
-    public static long SANITY_CHECK_INTERVAL = 60000;
+    public static long SANITY_CHECK_INTERVAL = 60000L; // 1minute
+    // How often to log markPrice warnings (Eg: if calculated markPrice differs from websocket markPrice for more than 0.5%)
+    public static long MARK_PRICE_LOG_INTERVAL = 60000L * 5L; // 5 minute
 
     // Minimum spread in ticks
     public static final int MIN_SPREAD_TICKS = 10;
 
     // Position limits
     public static final boolean CHECK_POSITION_LIMITS = true;
-    public static final long MIN_POSITION = -200;
-    public static final long MAX_POSITION = 200;
+    public static final long MIN_POSITION = -200L;
+    public static final long MAX_POSITION = 200L;
 }
