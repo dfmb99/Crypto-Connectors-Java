@@ -625,6 +625,7 @@ class MarketMakerManager {
         }
 
         if (!Settings.DRY_RUN) {
+            orders = delete_orders_high_margin(orders);
             if (orders.size() > 0) {
                 e.place_order_bulk(orders);
                 Thread.sleep(Settings.REST_INTERVAL);
@@ -632,6 +633,30 @@ class MarketMakerManager {
             } else
                 check_current_spread();
         }
+    }
+
+    /**
+     * Receives orders to be placed and if too much margin is being used deletes the orders that would increase the position preventing liquidations
+     * @param orders - orders to be checked, deletes orders that would increase position size if too high margin being used
+     */
+    private JsonArray delete_orders_high_margin(JsonArray orders) {
+        long position = e.get_position();
+        float marginUsed = e.get_margin_used();
+
+        if (marginUsed > Settings.MAX_MARGIN_USED && position > 0l) { // only places sell orders
+            for(JsonElement elem: orders)
+                if (elem.getAsJsonObject().get("orderQty").getAsLong() > 0l)
+                    orders.remove(elem);
+            return orders;
+        } else if(marginUsed > Settings.MAX_MARGIN_USED && position < 0l) { // only places buy orders
+            for(JsonElement elem: orders)
+                if (elem.getAsJsonObject().get("orderQty").getAsLong() < 0l)
+                    orders.remove(elem);
+            return orders;
+        } else if(marginUsed > Settings.MAX_MARGIN_USED && position == 0){ // we do not place orders
+            return new JsonArray();
+        } else
+            return orders;
     }
 
     protected void cancel_all_orders() {
@@ -650,15 +675,14 @@ class MarketMakerManager {
             LOGGER.warning("Short delta limit exceeded.");
             LOGGER.warning(String.format("Current position: %d Minimum position: %d", e.get_position(), Settings.MIN_POSITION));
             e.cancel_all_orders();
-            System.exit(1);
+            //System.exit(1);
         }else if(long_position_limit_exceeded()) {
             LOGGER.warning("Long delta limit exceeded.");
             LOGGER.warning(String.format("Current position: %d Maximum position: %d", e.get_position(), Settings.MAX_POSITION));
             e.cancel_all_orders();
-            System.exit(1);
+            //System.exit(1);
         } else if(openOrders[0].size() > 1) { // checks how many bids on the orderbook
             LOGGER.warning(String.format("%d buy orders will be canceled.", openOrders[0].size() - 1));
-
             // highest buy orderID
             String highestBuyID = e.get_topBook_orders()[0].get("orderID").toString();
             for(JsonElement elem: openOrders[0]) {

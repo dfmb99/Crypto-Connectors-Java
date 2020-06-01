@@ -177,8 +177,7 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
-        this.userSession = null;
-        this.connect();
+        this.closeSession();
     }
 
     /**

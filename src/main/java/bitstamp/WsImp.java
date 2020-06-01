@@ -1,5 +1,6 @@
 package bitstamp;
 
+import bitmex.ws.Ws;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -21,8 +22,8 @@ public class WsImp {
     private Session userSession;
     private final String symbol;
     private float lastPrice;
-    // last force reconnect timestamp
-    private long lastReconnectStamp;
+    // allowed reconnect timestamp
+    private long reconnectStamp;
 
     /**
      * Bitstamp web socket client implementation for one symbol
@@ -31,7 +32,7 @@ public class WsImp {
         this.container = ContainerProvider.getWebSocketContainer();
         this.lastPrice = -1f;
         this.symbol = symbol;
-        this.lastReconnectStamp = 0L;
+        this.reconnectStamp = 0L;
         this.connect();
         this.waitForData();
     }
@@ -112,11 +113,11 @@ public class WsImp {
      * Checks latency on a websocket update
      * @param timestamp - epoch stamp in ms
      */
-    private void check_latency(long timestamp) {
+    private synchronized void check_latency(long timestamp) {
         long latency = System.currentTimeMillis() - timestamp;
-        if( latency > MAX_LATENCY && System.currentTimeMillis() > lastReconnectStamp + FORCE_RECONNECT_INTERVAL) {
+        if( latency > Ws.MAX_LATENCY && System.currentTimeMillis() > reconnectStamp ) {
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            lastReconnectStamp = System.currentTimeMillis();
+            reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
             this.closeSession();
         }
     }
@@ -149,8 +150,7 @@ public class WsImp {
     @OnError
     public void onError(Throwable throwable) {
         LOGGER.warning(throwable.toString());
-        this.userSession = null;
-        this.connect();
+        this.closeSession();
     }
 
     /**
