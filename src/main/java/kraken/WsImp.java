@@ -211,6 +211,7 @@ public class WsImp {
      * @param message - message to be sent
      */
     protected void sendMessage(String message) {
-        this.userSession.getAsyncRemote().sendText(message);
+        if(isSessionOpen())
+            this.userSession.getAsyncRemote().sendText(message);
     }
 }

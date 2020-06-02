@@ -143,7 +143,6 @@ public class WsImp {
         }
     }
 
-
     /**
      * Updates memory data when receives "trade" event
      *
@@ -178,7 +177,7 @@ public class WsImp {
      *
      * @param updateTime - last updateTime
      */
-    private synchronized void check_latency(long updateTime) {
+    private void check_latency(long updateTime) {
         long latency = System.currentTimeMillis() - updateTime;
         if ( latency > MAX_LATENCY && System.currentTimeMillis() > reconnectStamp) {
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));

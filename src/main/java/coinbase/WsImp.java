@@ -173,7 +173,7 @@ public class WsImp {
      * Checks latency on a websocket update
      * @param timestamp - timestamp last update
      */
-    private synchronized void check_latency(String timestamp) {
+    private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
         long latency = System.currentTimeMillis() - updateTime;
         if( latency > MAX_LATENCY && System.currentTimeMillis() > reconnectStamp ) {
@@ -225,6 +225,7 @@ public class WsImp {
      * @param message - message to be sent
      */
     protected void sendMessage(String message) {
-        this.userSession.getAsyncRemote().sendText(message);
+        if(isSessionOpen())
+            this.userSession.getAsyncRemote().sendText(message);
     }
 }
