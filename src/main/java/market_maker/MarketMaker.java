@@ -503,9 +503,10 @@ class MarketMakerManager {
         float spread = get_spread_abs(calculatedMarkPrice, wsMarkPrice);
 
         if( spread > 0.005f) {
+            long now = System.currentTimeMillis();
             // to prevent spam of logging messages (only prints every x ms depending on user settings)
-            if(System.currentTimeMillis() > markPriceLogStamp) {
-                markPriceLogStamp = markPriceLogStamp + Settings.MARK_PRICE_LOG_INTERVAL;
+            if(now > markPriceLogStamp) {
+                markPriceLogStamp = now + Settings.MARK_PRICE_LOG_INTERVAL;
                 LOGGER.info(String.format("Using mark price from BitMex websocket: (websocket) %f, (calculated) %f, (spread) %f", wsMarkPrice, calculatedMarkPrice, spread));
             }
             return wsMarkPrice;
@@ -729,8 +730,8 @@ class MarketMakerManager {
             try {
                 //sanity check
                 long now = System.currentTimeMillis();
-                if(System.currentTimeMillis() > sanityCheckStamp) {
-                    sanityCheckStamp = sanityCheckStamp + Settings.SANITY_CHECK_INTERVAL;
+                if(now > sanityCheckStamp) {
+                    sanityCheckStamp = now + Settings.SANITY_CHECK_INTERVAL;
                     sanity_check();
                 }
 
