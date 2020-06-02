@@ -75,7 +75,9 @@ class ExchangeInterface {
     /**
      * Gets instrument state
      */
-    protected String get_instrument_state() { return this.mexRest.get_instrument(this.symbol).get(0).getAsJsonObject().get("state").getAsString(); }
+    protected String get_instrument_state() {
+        return this.mexRest.get_instrument(this.symbol).get(0).getAsJsonObject().get("state").getAsString();
+    }
 
     /**
      * Returns tick size of contract
@@ -143,6 +145,7 @@ class ExchangeInterface {
 
     /**
      * Calculates and returns mark price from spot exchanges data
+     *
      * @return mark price
      */
     protected float get_mark_price() {
@@ -191,15 +194,29 @@ class ExchangeInterface {
     }
 
     /**
-     * Http request to get open orders
+     * Http request to get open sell orders
      *
      * @return JsonArray of response
      */
-    protected JsonArray rest_get_open_orders() {
+    protected JsonArray rest_get_open_sell_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
-        params.addProperty("count", 100);
+        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false, \"side\": \"Sell\"}").toString());
+        params.addProperty("count", 25);
+        params.addProperty("reverse", true);
+        return this.mexRest.get_order(params);
+    }
+
+    /**
+     * Http request to get open buy orders
+     *
+     * @return JsonArray of response
+     */
+    protected JsonArray rest_get_open_buy_orders() {
+        JsonObject params = new JsonObject();
+        params.addProperty("symbol", this.symbol);
+        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false, \"side\": \"Buy\"}").toString());
+        params.addProperty("count", 25);
         params.addProperty("reverse", true);
         return this.mexRest.get_order(params);
     }
@@ -246,6 +263,7 @@ class ExchangeInterface {
 
     /**
      * Returns true if buy order w/ orderID is filled
+     *
      * @param orderID - orderID of buy order
      * @return true if buy order w/ orderID is filled, false otherwise
      */
@@ -260,6 +278,7 @@ class ExchangeInterface {
 
     /**
      * Returns true if sell order w/ orderID is filled
+     *
      * @param orderID - orderID of sell order
      * @return true if sell order w/ orderID is filled, false otherwise
      */
@@ -284,12 +303,13 @@ class ExchangeInterface {
             toCancel[i] = openOrders.get(i).getAsJsonObject().get("orderID").toString();
 
         params.addProperty("orderID", Arrays.toString(toCancel));
-        if(toCancel.length > 0)
+        if (toCancel.length > 0)
             this.mexRest.del_order(params);
     }
 
     /**
      * Cancel orders passed on params
+     *
      * @param params - orders IDs to be canceled
      */
     protected void cancel_orders(JsonObject params) {
@@ -546,6 +566,7 @@ class MarketMakerManager {
 
     /**
      * Gets mark price to be used in algorithm calculations
+     *
      * @return mark price
      */
     private float get_mark_price() {
@@ -556,10 +577,10 @@ class MarketMakerManager {
         // spread between calculated mark price and mark price received by websocket
         float spread = get_spread_abs(calculatedMarkPrice, wsMarkPrice);
 
-        if( spread > 0.005f) {
+        if (spread > 0.005f) {
             long now = System.currentTimeMillis();
             // to prevent spam of logging messages (only prints every x ms depending on user settings)
-            if(now > markPriceLogStamp) {
+            if (now > markPriceLogStamp) {
                 markPriceLogStamp = now + Settings.MARK_PRICE_LOG_INTERVAL;
                 LOGGER.info(String.format("Using mark price from BitMex websocket: (websocket) %f, (calculated) %f, (spread) %f", wsMarkPrice, calculatedMarkPrice, spread));
             }
@@ -645,13 +666,8 @@ class MarketMakerManager {
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
-        for(String orderID: this.openBuyOrds)
-            if(e.is_buy_order_filled(orderID))
-                this.openBuyOrds.remove(orderID);
-
-        for(String orderID: this.openSellOrds)
-            if(e.is_sell_order_filled(orderID))
-                this.openSellOrds.remove(orderID);
+        this.openBuyOrds.removeIf(e::is_buy_order_filled);
+        this.openSellOrds.removeIf(e::is_sell_order_filled);
 
         // place new buy order, if no buy order is opened
         if (this.openBuyOrds.size() < 1 && topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
@@ -693,14 +709,14 @@ class MarketMakerManager {
                 // makes http request to BitMex servers to place orders
                 JsonArray ordResp = e.place_order_bulk(orders);
                 // iterates over JsonArray response
-                for(JsonElement elem: ordResp) {
+                for (JsonElement elem : ordResp) {
                     JsonObject obj = elem.getAsJsonObject();
                     // if order placed with success and still open add it to open orders in local memory
-                    if(obj.has("ordStatus") && (obj.get("ordStatus").getAsString().equals("New") || obj.get("ordStatus").getAsString().equals("PartiallyFilled"))){
+                    if (obj.has("ordStatus") && (obj.get("ordStatus").getAsString().equals("New") || obj.get("ordStatus").getAsString().equals("PartiallyFilled"))) {
                         String orderID = obj.get("orderID").getAsString();
-                        if (obj.get("side").equals("Buy"))
+                        if (obj.get("side").getAsString().equals("Buy"))
                             this.openBuyOrds.add(orderID);
-                        else if (obj.get("side").equals("Sell"))
+                        else if (obj.get("side").getAsString().equals("Sell"))
                             this.openSellOrds.add(orderID);
                     }
                 }
@@ -713,26 +729,37 @@ class MarketMakerManager {
 
     /**
      * Receives orders to be placed and if too much margin is being used deletes the orders that would increase the position preventing liquidations
+     *
      * @param orders - orders to be checked, deletes orders that would increase position size if too high margin being used
      */
     private JsonArray delete_orders_high_margin(JsonArray orders) {
         long position = e.get_position();
         float marginUsed = e.get_margin_used();
+        JsonElement[] toRmv = new JsonElement[orders.size()];
+        int counter = 0;
 
         if (marginUsed > Settings.MAX_MARGIN_USED && position > 0L) { // only places sell orders
-            for(JsonElement elem: orders)
+            for (JsonElement elem : orders) {
                 if (elem.getAsJsonObject().get("orderQty").getAsLong() > 0L)
-                    orders.remove(elem);
-            return orders;
-        } else if(marginUsed > Settings.MAX_MARGIN_USED && position < 0L) { // only places buy orders
-            for(JsonElement elem: orders)
+                    toRmv[counter++] = elem;
+            }
+        } else if (marginUsed > Settings.MAX_MARGIN_USED && position < 0L) { // only places buy orders
+            for (JsonElement elem : orders) {
                 if (elem.getAsJsonObject().get("orderQty").getAsLong() < 0L)
-                    orders.remove(elem);
-            return orders;
-        } else if(marginUsed > Settings.MAX_MARGIN_USED && position == 0L){ // we do not place orders
-            return new JsonArray();
-        } else
-            return orders;
+                    toRmv[counter++] = elem;
+            }
+        } else if (marginUsed > Settings.MAX_MARGIN_USED && position == 0L) { // we do not place orders
+            for(JsonElement elem : orders)
+                toRmv[counter++] = elem;
+        }
+
+        for (int i = 0; i < counter; i++)
+            orders.remove(toRmv[i]);
+
+        if(counter > 0)
+            LOGGER.warning(String.format("Margin used is above %f. Current: %f", Settings.MAX_MARGIN_USED, marginUsed));
+
+        return orders;
     }
 
     protected void cancel_all_orders() {
@@ -744,41 +771,47 @@ class MarketMakerManager {
         JsonArray[] openOrders = e.get_open_orders();
         List<String> toCancel = new ArrayList<>();
 
-        if(!e.get_instrument_state().equals("Open")) {
+        if (!e.get_instrument_state().equals("Open")) {
             LOGGER.warning(String.format("Instrument %s is not open.", this.symbol));
             System.exit(1);
-        }else if(short_position_limit_exceeded()) {
+        } else if (short_position_limit_exceeded()) {
             LOGGER.warning("Short delta limit exceeded.");
             LOGGER.warning(String.format("Current position: %d Minimum position: %d", e.get_position(), Settings.MIN_POSITION));
             e.cancel_all_orders();
             //System.exit(1);
-        }else if(long_position_limit_exceeded()) {
+        } else if (long_position_limit_exceeded()) {
             LOGGER.warning("Long delta limit exceeded.");
             LOGGER.warning(String.format("Current position: %d Maximum position: %d", e.get_position(), Settings.MAX_POSITION));
             e.cancel_all_orders();
             //System.exit(1);
-        } else if(openOrders[0].size() > 1) { // checks how many bids on the orderbook
+        } else if (openOrders[0].size() > 1) { // checks how many bids on the orderbook
             LOGGER.warning(String.format("%d buy orders will be canceled.", openOrders[0].size() - 1));
             // highest buy orderID
             String highestBuyID = e.get_topBook_orders()[0].get("orderID").toString();
-            for(JsonElement elem: openOrders[0]) {
+            for (JsonElement elem : openOrders[0]) {
                 String orderID = elem.getAsJsonObject().get("orderID").toString();
-                if(!highestBuyID.equals(orderID))
+                if (!highestBuyID.equals(orderID))
                     toCancel.add(orderID);
             }
-        } else if(openOrders[1].size() > 1) { // checks how many asks on the orderbook
+        } else if (openOrders[1].size() > 1) { // checks how many asks on the orderbook
             LOGGER.warning(String.format("%d ask orders will be canceled.", openOrders[1].size() - 1));
 
             // lowest sell orderID
             String lowestSellID = e.get_topBook_orders()[1].get("orderID").toString();
-            for(JsonElement elem: openOrders[1]) {
+            for (JsonElement elem : openOrders[1]) {
                 String orderID = elem.getAsJsonObject().get("orderID").toString();
-                if(!lowestSellID.equals(orderID))
+                if (!lowestSellID.equals(orderID))
                     toCancel.add(orderID);
             }
+        } else if(e.rest_get_open_buy_orders().size() < 1 && this.openBuyOrds.size() > 0) {
+            LOGGER.warning(String.format("No buy order opened, probably canceled. It was expected to be open."));
+            this.openBuyOrds.remove(0);
+        } else if (e.rest_get_open_sell_orders().size() < 1 && this.openSellOrds.size() > 0) {
+            LOGGER.warning(String.format("No sell order opened, probably canceled. It was expected to be open."));
+            this.openSellOrds.remove(0);
         }
 
-        if(toCancel.size() > 0) {
+        if (toCancel.size() > 0) {
             JsonObject obj = new JsonObject();
             String[] params = new String[toCancel.size()];
             toCancel.toArray(params);
@@ -797,7 +830,7 @@ class MarketMakerManager {
         LOGGER.info(String.format("Fair price: %f", get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
         LOGGER.info(String.format("Skew: %f", get_position_skew()));
-        LOGGER.info(String.format("Open orders: bids %d, asks %d", openOrders[0].size(), openOrders[1].size() ));
+        LOGGER.info(String.format("Open orders: bids %d, asks %d", openOrders[0].size(), openOrders[1].size()));
     }
 
     private void run_loop() {
@@ -805,7 +838,7 @@ class MarketMakerManager {
             try {
                 //sanity check
                 long now = System.currentTimeMillis();
-                if(now > sanityCheckStamp) {
+                if (now > sanityCheckStamp) {
                     sanityCheckStamp = now + Settings.SANITY_CHECK_INTERVAL;
                     sanity_check();
                 }
