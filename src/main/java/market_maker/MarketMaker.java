@@ -59,7 +59,7 @@ class ExchangeInterface {
         // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
         this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
         // if we are calculating mark price ourselves
-        if(Settings.MARK_PRICE_CALC) {
+        if (Settings.MARK_PRICE_CALC) {
             this.spotPrices = new SpotPricesTracker(symbol);
             this.get_instrument_composite_index();
         }
@@ -89,6 +89,16 @@ class ExchangeInterface {
      */
     protected float get_tickSize() {
         return this.tickSize;
+    }
+
+    /**
+     * Gets timestamp of contract expiry if not perpetual, null otherwise
+     * @return timestamp of contract expiry if not perpetual, null otherwise
+     */
+    protected Long get_expiry() {
+        if(this.expiry == null)
+            return null;
+        return TimeStamp.getTimestamp(this.expiry);
     }
 
     /**
@@ -455,6 +465,12 @@ class MarketMakerManager {
         this.markPriceLogStamp = 0L;
         this.openBuyOrds = new ArrayList<>();
         this.openSellOrds = new ArrayList<>();
+        JsonArray sellOrders = e.rest_get_open_buy_orders();
+        JsonArray buyOrders = e.rest_get_open_sell_orders();
+        for(JsonElement elem: sellOrders)
+            this.openBuyOrds.add(elem.getAsJsonObject().get("orderID").getAsString());
+        for(JsonElement elem: buyOrders)
+            this.openSellOrds.add(elem.getAsJsonObject().get("orderID").getAsString());
         run_loop();
     }
 
@@ -562,8 +578,9 @@ class MarketMakerManager {
         float[] prices = new float[2];
 
         float quoteMidPrice = get_mark_price() * (1f + get_position_skew());
-        prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - get_spread_index()), e.get_tickSize());
-        prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + get_spread_index()), e.get_tickSize());
+        float spreadIndex = get_spread_index();
+        prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - spreadIndex), e.get_tickSize());
+        prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + spreadIndex), e.get_tickSize());
         return prices;
     }
 
@@ -576,7 +593,7 @@ class MarketMakerManager {
         // mark price received in bitmex websocket
         float wsMarkPrice = e.get_ws_mark_price();
 
-        if(!Settings.MARK_PRICE_CALC)
+        if (!Settings.MARK_PRICE_CALC)
             return wsMarkPrice;
 
         // mark price calculated by algorithm
@@ -600,7 +617,7 @@ class MarketMakerManager {
     /**
      * Checks current order spreads to markPrice, and amends them if necessary
      */
-    private void check_current_spread() throws InterruptedException {
+    private void check_current_spread() {
         float fairPrice = get_mark_price();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
@@ -616,7 +633,7 @@ class MarketMakerManager {
     /**
      * Amends order pair that is closer to midPrice with current position skew, if orders exist, otherwise does nothing
      */
-    private void amend_orders() throws InterruptedException {
+    private void amend_orders() {
         JsonArray orders = new JsonArray();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
@@ -637,9 +654,8 @@ class MarketMakerManager {
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0) {
-            e.amend_order_bulk(orders);
-            Thread.sleep(Settings.REST_INTERVAL);
             print_status();
+            e.amend_order_bulk(orders);
         }
     }
 
@@ -668,7 +684,7 @@ class MarketMakerManager {
     /**
      * Checks current open orders, and replaces/places new orders if any are missing
      */
-    private void converge_orders() throws InterruptedException {
+    private void converge_orders() {
         JsonArray orders = new JsonArray();
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
@@ -704,15 +720,15 @@ class MarketMakerManager {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
                 newBuy.addProperty("price", newPrices[0]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread_abs(newPrices[0], get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread(newPrices[0], get_mark_price())));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
         }
 
         if (!Settings.DRY_RUN) {
-            orders = delete_orders_high_margin(orders);
             if (orders.size() > 0) {
+                print_status();
                 // makes http request to BitMex servers to place orders
                 JsonArray ordResp = e.place_order_bulk(orders);
                 // iterates over JsonArray response
@@ -727,49 +743,12 @@ class MarketMakerManager {
                             this.openSellOrds.add(orderID);
                     }
                 }
-                Thread.sleep(Settings.REST_INTERVAL);
-                print_status();
             } else
                 check_current_spread();
         }
     }
 
-    /**
-     * Receives orders to be placed and if too much margin is being used deletes the orders that would increase the position preventing liquidations
-     *
-     * @param orders - orders to be checked, deletes orders that would increase position size if too high margin being used
-     */
-    private JsonArray delete_orders_high_margin(JsonArray orders) {
-        long position = e.get_position();
-        float marginUsed = e.get_margin_used();
-        JsonElement[] toRmv = new JsonElement[orders.size()];
-        int counter = 0;
-
-        if (marginUsed > Settings.MAX_MARGIN_USED && position > 0L) { // only places sell orders
-            for (JsonElement elem : orders) {
-                if (elem.getAsJsonObject().get("orderQty").getAsLong() > 0L)
-                    toRmv[counter++] = elem;
-            }
-        } else if (marginUsed > Settings.MAX_MARGIN_USED && position < 0L) { // only places buy orders
-            for (JsonElement elem : orders) {
-                if (elem.getAsJsonObject().get("orderQty").getAsLong() < 0L)
-                    toRmv[counter++] = elem;
-            }
-        } else if (marginUsed > Settings.MAX_MARGIN_USED && position == 0L) { // we do not place orders
-            for(JsonElement elem : orders)
-                toRmv[counter++] = elem;
-        }
-
-        for (int i = 0; i < counter; i++)
-            orders.remove(toRmv[i]);
-
-        if(counter > 0)
-            LOGGER.warning(String.format("Margin used is above %f. Current: %f", Settings.MAX_MARGIN_USED, marginUsed));
-
-        return orders;
-    }
-
-    protected void cancel_all_orders() {
+    private void cancel_all_orders() {
         LOGGER.info("Canceling all open orders.");
         e.cancel_all_orders();
     }
@@ -778,20 +757,16 @@ class MarketMakerManager {
         JsonArray[] openOrders = e.get_open_orders();
         List<String> toCancel = new ArrayList<>();
 
-        if (!e.get_instrument_state().equals("Open")) {
-            LOGGER.warning(String.format("Instrument %s is not open.", this.symbol));
-            System.exit(1);
-        } else if (short_position_limit_exceeded()) {
+        if (short_position_limit_exceeded()) {
             LOGGER.warning("Short delta limit exceeded.");
             LOGGER.warning(String.format("Current position: %d Minimum position: %d", e.get_position(), Settings.MIN_POSITION));
-            e.cancel_all_orders();
-            //System.exit(1);
+            cancel_all_orders();
         } else if (long_position_limit_exceeded()) {
             LOGGER.warning("Long delta limit exceeded.");
             LOGGER.warning(String.format("Current position: %d Maximum position: %d", e.get_position(), Settings.MAX_POSITION));
-            e.cancel_all_orders();
-            //System.exit(1);
-        } else if (openOrders[0].size() > 1) { // checks how many bids on the orderbook
+            cancel_all_orders();
+        }
+        if (openOrders[0].size() > 1) { // checks how many bids on the orderbook
             LOGGER.warning(String.format("%d buy orders will be canceled.", openOrders[0].size() - 1));
             // highest buy orderID
             String highestBuyID = e.get_topBook_orders()[0].get("orderID").toString();
@@ -800,7 +775,8 @@ class MarketMakerManager {
                 if (!highestBuyID.equals(orderID))
                     toCancel.add(orderID);
             }
-        } else if (openOrders[1].size() > 1) { // checks how many asks on the orderbook
+        }
+        if (openOrders[1].size() > 1) { // checks how many asks on the orderbook
             LOGGER.warning(String.format("%d ask orders will be canceled.", openOrders[1].size() - 1));
 
             // lowest sell orderID
@@ -810,11 +786,13 @@ class MarketMakerManager {
                 if (!lowestSellID.equals(orderID))
                     toCancel.add(orderID);
             }
-        } else if(e.rest_get_open_buy_orders().size() < 1 && this.openBuyOrds.size() > 0) {
-            LOGGER.warning(String.format("No buy order opened, probably canceled. It was expected to be open."));
+        }
+        if (e.rest_get_open_buy_orders().size() < 1 && this.openBuyOrds.size() > 0) {
+            LOGGER.warning("No buy order opened, probably canceled. It was expected to be open.");
             this.openBuyOrds.remove(0);
-        } else if (e.rest_get_open_sell_orders().size() < 1 && this.openSellOrds.size() > 0) {
-            LOGGER.warning(String.format("No sell order opened, probably canceled. It was expected to be open."));
+        }
+        if (e.rest_get_open_sell_orders().size() < 1 && this.openSellOrds.size() > 0) {
+            LOGGER.warning("No sell order opened, probably canceled. It was expected to be open.");
             this.openSellOrds.remove(0);
         }
 
@@ -829,31 +807,37 @@ class MarketMakerManager {
     }
 
     private void print_status() {
-        JsonArray[] openOrders = e.get_open_orders();
-
         LOGGER.info(String.format("Position: %d", e.get_position()));
         LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
         LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
         LOGGER.info(String.format("Fair price: %f", get_mark_price()));
         LOGGER.info(String.format("Spread index: %f", get_spread_index()));
         LOGGER.info(String.format("Skew: %f", get_position_skew()));
-        LOGGER.info(String.format("Open orders: bids %d, asks %d", openOrders[0].size(), openOrders[1].size()));
+        LOGGER.info("-------------------------------------------------");
     }
 
     private void run_loop() {
         while (true) {
             try {
+
+                Long expiry = e.get_expiry();
+                if(expiry != null && System.currentTimeMillis() > expiry) {
+                    LOGGER.info(String.format("Contract expired. Ending algorithm execution."));
+                    System.exit(0);
+                }
                 //sanity check
                 long now = System.currentTimeMillis();
                 if (now > sanityCheckStamp) {
                     sanityCheckStamp = now + Settings.SANITY_CHECK_INTERVAL;
                     sanity_check();
                 }
+
                 // Indexes weights get updated after quarterly futures expiry + 5 seconds
                 if (Settings.MARK_PRICE_CALC && System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
                     LOGGER.info("New quarterly expiry, updating index weights.");
                     e.get_instrument_composite_index();
                 }
+
                 // if websocket connection open update orders
                 if (e.isWebsocketOpen()) {
                     converge_orders();
@@ -861,7 +845,7 @@ class MarketMakerManager {
                 }
             } catch (InterruptedException interruptedException) {
                 LOGGER.warning("Algorithm execution interrupted.");
-                e.cancel_all_orders();
+                cancel_all_orders();
             }
         }
     }
