@@ -50,7 +50,6 @@ class ExchangeInterface {
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
         this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, symbol);
-        this.spotPrices = new SpotPricesTracker(symbol);
 
         // Initial data
         JsonObject instrument = mexWs.get_instrument().get(0).getAsJsonObject();
@@ -59,7 +58,11 @@ class ExchangeInterface {
         this.tickSize = instrument.get("tickSize").getAsFloat();
         // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
         this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
-        this.get_instrument_composite_index();
+        // if we are calculating mark price ourselves
+        if(Settings.MARK_PRICE_CALC) {
+            this.spotPrices = new SpotPricesTracker(symbol);
+            this.get_instrument_composite_index();
+        }
 
     }
 
@@ -570,10 +573,14 @@ class MarketMakerManager {
      * @return mark price
      */
     private float get_mark_price() {
-        // mark price calculated by algorithm
-        float calculatedMarkPrice = e.get_mark_price();
         // mark price received in bitmex websocket
         float wsMarkPrice = e.get_ws_mark_price();
+
+        if(!Settings.MARK_PRICE_CALC)
+            return wsMarkPrice;
+
+        // mark price calculated by algorithm
+        float calculatedMarkPrice = e.get_mark_price();
         // spread between calculated mark price and mark price received by websocket
         float spread = get_spread_abs(calculatedMarkPrice, wsMarkPrice);
 
@@ -843,7 +850,7 @@ class MarketMakerManager {
                     sanity_check();
                 }
                 // Indexes weights get updated after quarterly futures expiry + 5 seconds
-                if (System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
+                if (Settings.MARK_PRICE_CALC && System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
                     LOGGER.info("New quarterly expiry, updating index weights.");
                     e.get_instrument_composite_index();
                 }

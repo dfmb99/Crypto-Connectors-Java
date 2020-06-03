@@ -3,13 +3,13 @@ package market_maker;
 public class Settings {
     // Main configuration
     public static final String SYMBOL = "XBTUSD";
-    public static final boolean TESTNET = false;
+    public static final boolean TESTNET = true;
     public static final boolean DRY_RUN = false;
     public static final String ORDER_ID_PREFIX = "mmbitmex";
 
     // Authentication
-    public static final String API_KEY = "7oc_GCgs3A6T63f-AgyZ_cdo";
-    public static final String API_SECRET = "AuOWZ3wnmtiF7En9gv98f80G2fZ6zEojTPcnFv5mowGUy-ry";
+    public static final String API_KEY = "ViD2w32SEYtDVwzLqZvXNolg";
+    public static final String API_SECRET = "e2T8ZpBrA7Pnr4oYpCVb1yaJo_5_C_QKKdPiF736sHnGq3gt";
 
     // Market making configuration
     public static final long ORDER_SIZE = 1L;
@@ -17,6 +17,7 @@ public class Settings {
     public static final float SPREAD_INDEX = 40f;
     public static final int SPREAD_SNAPS = (int) (SPREAD_INDEX * 2);
     public static final boolean POST_ONLY = false;
+    public static final boolean MARK_PRICE_CALC = false;
 
     // Timeouts
 

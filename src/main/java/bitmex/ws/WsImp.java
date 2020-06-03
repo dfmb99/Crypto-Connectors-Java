@@ -123,7 +123,7 @@ public class WsImp implements Ws {
         this.data = new ConcurrentHashMap<>();
         this.symbol = symbol;
         this.reconnectStamp = 0L;
-        /**
+        /*
          * With order book data 
          * this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
          *                "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
@@ -188,7 +188,7 @@ public class WsImp implements Ws {
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
         // gets open orders for this symbol and updates memory
-        this.data.put("order", this.get_rest_open_orders());
+        this.data.put("order", this.get_rest_orders());
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
         sendMessage(String.format("{\"op\": \"authKeyExpires\", \"args\": [\"%s\", %d, \"%s\"]}", apiKey, expires, signature));
@@ -616,10 +616,10 @@ public class WsImp implements Ws {
      *
      * @return Returns open orders for current symbol
      */
-    private JsonArray get_rest_open_orders() {
+    private JsonArray get_rest_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
+        //params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
         params.addProperty("count", Ws.ORDER_MAX_LEN);
         params.addProperty("reverse", true);
         return this.rest.get_order(params);

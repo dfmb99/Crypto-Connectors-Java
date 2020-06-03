@@ -1,6 +1,5 @@
 package bitstamp;
 
-import bitmex.ws.Ws;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -14,8 +13,8 @@ public class WsImp {
 
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static String URL = "wss://ws.bitstamp.net";
-    private final static int RETRY_PERIOD = 3000;
-    private final static int MAX_LATENCY = 15000;
+    private final static int RETRY_PERIOD = 10000;
+    private final static int MAX_LATENCY = 20000;
     private final static int FORCE_RECONNECT_INTERVAL = 60000;
 
     private final WebSocketContainer container;
@@ -115,7 +114,7 @@ public class WsImp {
      */
     private void check_latency(long timestamp) {
         long latency = System.currentTimeMillis() - timestamp;
-        if( latency > Ws.MAX_LATENCY && System.currentTimeMillis() > reconnectStamp ) {
+        if( latency > MAX_LATENCY && System.currentTimeMillis() > reconnectStamp ) {
             LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
             reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
             this.closeSession();
