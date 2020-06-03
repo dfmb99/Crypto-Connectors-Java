@@ -44,7 +44,7 @@ public class WsImp {
 
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static String URL = "wss://ws.kraken.com";
-    private final static int RETRY_PERIOD = 10000;
+    private final static int RETRY_PERIOD = 5000;
 
     private final WebSocketContainer container;
     private HeartbeatThread heartbeatThread;

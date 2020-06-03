@@ -2,17 +2,17 @@ package market_maker;
 
 public class Settings {
     // Main configuration
-    public static final String SYMBOL = "XBTUSD";
-    public static final boolean TESTNET = true;
+    public static final String SYMBOL = "ETHUSD";
+    public static final boolean TESTNET = false;
     public static final boolean DRY_RUN = false;
     public static final String ORDER_ID_PREFIX = "mmbitmex";
 
     // Authentication
-    public static final String API_KEY = "ViD2w32SEYtDVwzLqZvXNolg";
-    public static final String API_SECRET = "e2T8ZpBrA7Pnr4oYpCVb1yaJo_5_C_QKKdPiF736sHnGq3gt";
+    public static final String API_KEY = "7oc_GCgs3A6T63f-AgyZ_cdo";
+    public static final String API_SECRET = "AuOWZ3wnmtiF7En9gv98f80G2fZ6zEojTPcnFv5mowGUy-ry";
 
     // Market making configuration
-    public static final long ORDER_SIZE = 1L;
+    public static final long ORDER_SIZE = 20L;
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
     public static final float SPREAD_INDEX = 40f;
     public static final int SPREAD_SNAPS = (int) (SPREAD_INDEX * 2);
@@ -37,6 +37,6 @@ public class Settings {
 
     // Position limits
     public static final boolean CHECK_POSITION_LIMITS = true;
-    public static final long MIN_POSITION = -250L;
-    public static final long MAX_POSITION = 250L;
+    public static final long MIN_POSITION = -200L;
+    public static final long MAX_POSITION = 200L;
 }

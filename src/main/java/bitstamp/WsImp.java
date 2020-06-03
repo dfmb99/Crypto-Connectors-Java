@@ -13,8 +13,8 @@ public class WsImp {
 
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static String URL = "wss://ws.bitstamp.net";
-    private final static int RETRY_PERIOD = 10000;
-    private final static int MAX_LATENCY = 20000;
+    private final static int RETRY_PERIOD = 5000;
+    private final static int MAX_LATENCY = 15000;
     private final static int FORCE_RECONNECT_INTERVAL = 60000;
 
     private final WebSocketContainer container;

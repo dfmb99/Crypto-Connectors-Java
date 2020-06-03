@@ -15,8 +15,8 @@ public interface Ws {
     int TRADE_BIN_MAX_LEN = Settings.SPREAD_SNAPS;
     int EXEC_MAX_LEN = 100;
     int ORDER_MAX_LEN = 25;
-    int RETRY_PERIOD = 10000;
-    int MAX_LATENCY = 20000;
+    int RETRY_PERIOD = 5000;
+    int MAX_LATENCY = 15000;
     int FORCE_RECONNECT_INTERVAL = 60000;
 
     /**
