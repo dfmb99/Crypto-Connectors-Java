@@ -623,7 +623,11 @@ class MarketMakerManager {
         // big volatility changes can cause we quoting a spread too wide, so we amend orders to tight the spread
         if ((topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() > 0) && (get_spread_abs(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
                 (get_spread_abs(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
-            LOGGER.info(String.format("Spread too wide, amending orders. Current volume index: %f", get_spread_index()));
+            LOGGER.info("Spread wide, quoting both sides, amending both orders.");
+            amend_orders();
+        }else if((short_position_limit_exceeded() && topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() < 1 && get_spread_abs(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) ||
+                (long_position_limit_exceeded() && topBookOrds[1].keySet().size() > 0 && topBookOrds[0].keySet().size() < 1 && get_spread_abs(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
+            LOGGER.info("Spread wide, quoting one side, amending order.");
             amend_orders();
         }
     }
@@ -687,8 +691,10 @@ class MarketMakerManager {
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
-        this.openBuyOrds.removeIf(e::is_buy_order_filled);
-        this.openSellOrds.removeIf(e::is_sell_order_filled);
+        if(this.openBuyOrds.removeIf(e::is_buy_order_filled))
+            LOGGER.info("Buy order filled.");
+        if(this.openSellOrds.removeIf(e::is_sell_order_filled))
+            LOGGER.info("Sell order filled.");
 
         // place new buy order, if no buy order is opened
         if (this.openBuyOrds.size() < 1 && topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
@@ -755,15 +761,6 @@ class MarketMakerManager {
         JsonArray[] openOrders = e.get_open_orders();
         List<String> toCancel = new ArrayList<>();
 
-        if (short_position_limit_exceeded()) {
-            LOGGER.warning("Short delta limit exceeded.");
-            LOGGER.warning(String.format("Current position: %d Minimum position: %d", e.get_position(), Settings.MIN_POSITION));
-            cancel_all_orders();
-        } else if (long_position_limit_exceeded()) {
-            LOGGER.warning("Long delta limit exceeded.");
-            LOGGER.warning(String.format("Current position: %d Maximum position: %d", e.get_position(), Settings.MAX_POSITION));
-            cancel_all_orders();
-        }
         if (openOrders[0].size() > 1) { // checks how many bids on the orderbook
             LOGGER.warning(String.format("%d buy orders will be canceled.", openOrders[0].size() - 1));
             // highest buy orderID
@@ -787,15 +784,21 @@ class MarketMakerManager {
         }
 
         openOrders = e.rest_get_open_orders();
-        if ( openOrders[0].size() < 1 && this.openBuyOrds.size() > 0)
+        if ( openOrders[0].size() < 1 && this.openBuyOrds.size() > 0) {
+            LOGGER.info("Removing buy order from memory. No buy order received from websocket.");
             this.openBuyOrds.remove(0);
-        else if( openOrders[0].size() > 0 && this.openBuyOrds.size() < 1)
+        }else if( openOrders[0].size() > 0 && this.openBuyOrds.size() < 1) {
+            LOGGER.info("Adding buy order to memory. Buy order received from websocket.");
             this.openBuyOrds.add(openOrders[0].get(0).getAsJsonObject().get("orderID").getAsString());
+        }
 
-        if ( openOrders[1].size() < 1 && this.openSellOrds.size() > 0)
+        if ( openOrders[1].size() < 1 && this.openSellOrds.size() > 0) {
+            LOGGER.info("Removing sell order from memory. No sell order received from websocket.");
             this.openSellOrds.remove(0);
-        else if( openOrders[1].size() > 1 && this.openSellOrds.size() < 1)
+        } else if( openOrders[1].size() > 1 && this.openSellOrds.size() < 1){
+            LOGGER.info("Adding sell order to memory. Sell order received from websocket.");
             this.openSellOrds.add(openOrders[1].get(0).getAsJsonObject().get("orderID").getAsString());
+        }
 
         if (toCancel.size() > 0) {
             JsonObject obj = new JsonObject();

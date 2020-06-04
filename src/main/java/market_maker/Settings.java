@@ -14,8 +14,8 @@ public class Settings {
     // Market making configuration
     public static final long ORDER_SIZE = 20L;
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
-    public static final float SPREAD_INDEX = 40f;
-    public static final int SPREAD_SNAPS = (int) (SPREAD_INDEX * 3);
+    public static final float SPREAD_INDEX = 5f;
+    public static final int SPREAD_SNAPS = (int) (SPREAD_INDEX * 7);
     public static final boolean POST_ONLY = false;
     public static final boolean MARK_PRICE_CALC = false;
 
