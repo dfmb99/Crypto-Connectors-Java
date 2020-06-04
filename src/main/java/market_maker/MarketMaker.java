@@ -579,6 +579,10 @@ class MarketMakerManager {
         float spreadIndex = get_spread_index();
         prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - spreadIndex), e.get_tickSize());
         prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + spreadIndex), e.get_tickSize());
+        if(Settings.POST_ONLY) {
+            prices[0] = Math.min(prices[0], (e.get_ask_price() - e.get_tickSize()));
+            prices[1] = Math.max(prices[1], (e.get_bid_price() + e.get_tickSize()));
+        }
         return prices;
     }
 
@@ -640,14 +644,14 @@ class MarketMakerManager {
         float[] newPrices = get_new_order_prices();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
-        if (topBookOrds[0].keySet().size() > 0) {
+        if (topBookOrds[0].keySet().size() > 0 && topBookOrds[0].get("price").getAsFloat() != newPrices[0]) {
             JsonObject newBuy = new JsonObject();
             newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
             newBuy.addProperty("price", newPrices[0]);
             orders.add(newBuy);
             LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newBuy.get("price").getAsFloat()));
         }
-        if (topBookOrds[1].keySet().size() > 0) {
+        if (topBookOrds[1].keySet().size() > 0 && topBookOrds[1].get("price").getAsFloat() != newPrices[1]) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
             newSell.addProperty("price", newPrices[1]);
@@ -703,7 +707,7 @@ class MarketMakerManager {
             LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], get_mark_price())));
 
             // amends current sell order if there is a sell order opened
-            if (this.openSellOrds.size() > 0 && topBookOrds[1].keySet().size() > 0) {
+            if (this.openSellOrds.size() > 0 && topBookOrds[1].keySet().size() > 0 && topBookOrds[1].get("price").getAsFloat() != newPrices[1]) {
                 JsonObject newSell = new JsonObject();
                 newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
                 newSell.addProperty("price", newPrices[1]);
@@ -720,7 +724,7 @@ class MarketMakerManager {
             LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], get_mark_price())));
 
             // amends current buy order if there is a buy order opened
-            if (this.openBuyOrds.size() > 0 && topBookOrds[0].keySet().size() > 0) {
+            if (this.openBuyOrds.size() > 0 && topBookOrds[0].keySet().size() > 0 && topBookOrds[0].get("price").getAsFloat() != newPrices[0]) {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
                 newBuy.addProperty("price", newPrices[0]);
