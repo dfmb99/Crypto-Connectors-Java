@@ -207,31 +207,30 @@ class ExchangeInterface {
     }
 
     /**
-     * Http request to get open sell orders
+     * Http request to get open orders
      *
-     * @return JsonArray of response
+     * @return JsonArray[0] -> open buy orders / JsonArray[1] -> open sell orders
      */
-    protected JsonArray rest_get_open_sell_orders() {
-        JsonObject params = new JsonObject();
-        params.addProperty("symbol", this.symbol);
-        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false, \"side\": \"Sell\"}").toString());
-        params.addProperty("count", 25);
-        params.addProperty("reverse", true);
-        return this.mexRest.get_order(params);
-    }
+    protected JsonArray[] rest_get_open_orders() {
+        JsonArray[] arr = new JsonArray[2];
+        arr[0] = new JsonArray();
+        arr[1] = new JsonArray();
 
-    /**
-     * Http request to get open buy orders
-     *
-     * @return JsonArray of response
-     */
-    protected JsonArray rest_get_open_buy_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false, \"side\": \"Buy\"}").toString());
+        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
         params.addProperty("count", 25);
         params.addProperty("reverse", true);
-        return this.mexRest.get_order(params);
+
+        JsonArray openOrders = this.mexRest.get_order(params);
+        for (JsonElement elem : openOrders) {
+            if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
+                arr[0].add(elem);
+            else
+                arr[1].add(elem);
+        }
+
+        return arr;
     }
 
     /**
@@ -465,11 +464,10 @@ class MarketMakerManager {
         this.markPriceLogStamp = 0L;
         this.openBuyOrds = new ArrayList<>();
         this.openSellOrds = new ArrayList<>();
-        JsonArray sellOrders = e.rest_get_open_buy_orders();
-        JsonArray buyOrders = e.rest_get_open_sell_orders();
-        for(JsonElement elem: sellOrders)
+        JsonArray[] openOrders = e.rest_get_open_orders();
+        for(JsonElement elem: openOrders[0])
             this.openBuyOrds.add(elem.getAsJsonObject().get("orderID").getAsString());
-        for(JsonElement elem: buyOrders)
+        for(JsonElement elem: openOrders[1])
             this.openSellOrds.add(elem.getAsJsonObject().get("orderID").getAsString());
         run_loop();
     }
@@ -787,14 +785,17 @@ class MarketMakerManager {
                     toCancel.add(orderID);
             }
         }
-        if (e.rest_get_open_buy_orders().size() < 1 && this.openBuyOrds.size() > 0) {
-            LOGGER.warning("No buy order opened, probably canceled. It was expected to be open.");
+
+        openOrders = e.rest_get_open_orders();
+        if ( openOrders[0].size() < 1 && this.openBuyOrds.size() > 0)
             this.openBuyOrds.remove(0);
-        }
-        if (e.rest_get_open_sell_orders().size() < 1 && this.openSellOrds.size() > 0) {
-            LOGGER.warning("No sell order opened, probably canceled. It was expected to be open.");
+        else if( openOrders[0].size() > 0 && this.openBuyOrds.size() < 1)
+            this.openBuyOrds.add(openOrders[0].get(0).getAsJsonObject().get("orderID").getAsString());
+
+        if ( openOrders[1].size() < 1 && this.openSellOrds.size() > 0)
             this.openSellOrds.remove(0);
-        }
+        else if( openOrders[1].size() > 1 && this.openSellOrds.size() < 1)
+            this.openSellOrds.add(openOrders[1].get(0).getAsJsonObject().get("orderID").getAsString());
 
         if (toCancel.size() > 0) {
             JsonObject obj = new JsonObject();
