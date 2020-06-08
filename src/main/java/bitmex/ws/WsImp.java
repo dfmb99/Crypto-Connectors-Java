@@ -395,7 +395,7 @@ public class WsImp implements Ws {
             }
         } else if (action.equals("delete")) {
             //copy of liquidationData to prevent ConcurrentModification Exception
-            JsonArray liquidationDataCopy = JsonParser.parseString(liquidationData.toString()).getAsJsonArray();
+            JsonArray liquidationDataCopy = this.data.get("liquidation");
             for (JsonElement elem : data) {
                 // orderID in object received element
                 String orderIDRec = elem.getAsJsonObject().get("orderID").getAsString();
@@ -500,7 +500,8 @@ public class WsImp implements Ws {
             }
         } else if (obj.get("action").getAsString().equals("update")) {
             //copy of orderData to prevent ConcurrentModification Exception
-            JsonArray orderDataCopy = JsonParser.parseString(orderData.toString()).getAsJsonArray();
+            //JsonArray orderDataCopy = JsonParser.parseString(orderData.toString()).getAsJsonArray();
+            JsonArray orderDataCopy = this.data.get("order");
             boolean orderMatchFound;
             // iterates over object received
             for (JsonElement elemRec : data) {

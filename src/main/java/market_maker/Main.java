@@ -1,10 +1,11 @@
 package market_maker;
 
-import bitmex.ws.Ws;
 import com.google.gson.Gson;
-import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.stream.JsonReader;
 
 import java.io.IOException;
+import java.io.StringReader;
 import java.text.ParseException;
 import java.util.logging.Logger;
 
@@ -27,13 +28,9 @@ public class Main {
         // bitstamp.WsImp ws = null;
         //new WsImp(null, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, "XBTUSD");
 
-        JsonObject params = new JsonObject();
-        params.addProperty("symbol", "XBTUSD");
-        params.addProperty("filter", "{\"ordStatus.isTerminated\": false}");
-        params.addProperty("count", Ws.ORDER_MAX_LEN);
-        params.addProperty("reverse", true);
-
-        System.out.println(params.get("filter"));
+        JsonReader reader = new JsonReader(new StringReader("sadasd"));
+        reader.setLenient(true);
+        System.out.println(JsonParser.parseReader(reader).getAsJsonObject());
     }
 
 }

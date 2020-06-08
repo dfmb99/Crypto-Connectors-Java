@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.stream.JsonReader;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import utils.Auth;
@@ -13,6 +14,7 @@ import javax.ws.rs.client.*;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
+import java.io.StringReader;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -159,7 +161,9 @@ public class RestImp implements Rest {
      */
     private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
                              MultivaluedMap<String, Object> headers) {
-        JsonObject errorObj = (JsonObject) JsonParser.parseString(response).getAsJsonObject().get("error");
+        JsonReader reader = new JsonReader(new StringReader(response));
+        reader.setLenient(true);
+        JsonObject errorObj = (JsonObject) JsonParser.parseReader(reader).getAsJsonObject().get("error");
         String errLog = String.format("(%d) error on request: %s  Name: %s  Message: %s", status,
                 verb + endpoint, errorObj.get("name").toString(),
                 errorObj.get("message").toString());
@@ -256,7 +260,7 @@ public class RestImp implements Rest {
         JsonArray response = new JsonArray();
         JsonArray arr = JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
         for(JsonElement elem: arr) {
-            if( elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix) )
+            if( elem.getAsJsonObject().has("clOrdID") && elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix) )
                 response.add(elem);
         }
         return response;

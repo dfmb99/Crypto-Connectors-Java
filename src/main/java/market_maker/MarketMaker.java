@@ -693,6 +693,7 @@ class MarketMakerManager {
     private void converge_orders() {
         JsonArray orders = new JsonArray();
         float[] newPrices = get_new_order_prices();
+        float markPrice = get_mark_price();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
         if(this.openBuyOrds.removeIf(e::is_buy_order_filled))
@@ -704,14 +705,14 @@ class MarketMakerManager {
         if (this.openBuyOrds.size() < 1 && topBookOrds[0].keySet().size() < 1 && !long_position_limit_exceeded()) {
             JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], get_mark_price())));
+            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], markPrice)));
 
             // amends current sell order if there is a sell order opened
             if (this.openSellOrds.size() > 0 && topBookOrds[1].keySet().size() > 0 && topBookOrds[1].get("price").getAsFloat() != newPrices[1]) {
                 JsonObject newSell = new JsonObject();
                 newSell.addProperty("orderID", topBookOrds[1].get("orderID").getAsString());
                 newSell.addProperty("price", newPrices[1]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newPrices[1], get_spread(newPrices[1], get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[1].get("side").getAsString(), topBookOrds[1].get("price").getAsFloat(), newPrices[1], get_spread(newPrices[1], markPrice)));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newSell);
             }
@@ -721,14 +722,14 @@ class MarketMakerManager {
         if (this.openSellOrds.size() < 1 && topBookOrds[1].keySet().size() < 1 && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], get_mark_price())));
+            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], markPrice)));
 
             // amends current buy order if there is a buy order opened
             if (this.openBuyOrds.size() > 0 && topBookOrds[0].keySet().size() > 0 && topBookOrds[0].get("price").getAsFloat() != newPrices[0]) {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrds[0].get("orderID").getAsString());
                 newBuy.addProperty("price", newPrices[0]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread(newPrices[0], get_mark_price())));
+                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrds[0].get("side").getAsString(), topBookOrds[0].get("price").getAsFloat(), newPrices[0], get_spread(newPrices[0], markPrice)));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
@@ -789,18 +790,18 @@ class MarketMakerManager {
 
         openOrders = e.rest_get_open_orders();
         if ( openOrders[0].size() < 1 && this.openBuyOrds.size() > 0) {
-            LOGGER.info("Removing buy order from memory. No buy order received from websocket.");
+            LOGGER.info("Removing buy order from memory. No buy order received from server.");
             this.openBuyOrds.remove(0);
         }else if( openOrders[0].size() > 0 && this.openBuyOrds.size() < 1) {
-            LOGGER.info("Adding buy order to memory. Buy order received from websocket.");
+            LOGGER.info("Adding buy order to memory. Buy order received from server.");
             this.openBuyOrds.add(openOrders[0].get(0).getAsJsonObject().get("orderID").getAsString());
         }
 
         if ( openOrders[1].size() < 1 && this.openSellOrds.size() > 0) {
-            LOGGER.info("Removing sell order from memory. No sell order received from websocket.");
+            LOGGER.info("Removing sell order from memory. No sell order received from server.");
             this.openSellOrds.remove(0);
         } else if( openOrders[1].size() > 1 && this.openSellOrds.size() < 1){
-            LOGGER.info("Adding sell order to memory. Sell order received from websocket.");
+            LOGGER.info("Adding sell order to memory. Sell order received from server.");
             this.openSellOrds.add(openOrders[1].get(0).getAsJsonObject().get("orderID").getAsString());
         }
 
