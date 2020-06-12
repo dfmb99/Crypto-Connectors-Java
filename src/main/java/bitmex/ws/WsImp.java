@@ -398,11 +398,12 @@ public class WsImp implements Ws {
                 liquidationData.add(elem);
             }
         } else if (action.equals("delete")) {
-            Iterator<JsonElement> it = this.data.get("liquidation").iterator();
+            Iterator<JsonElement> it;
             for (JsonElement elem : data) {
                 // orderID in object received element
                 String orderIDRec = elem.getAsJsonObject().get("orderID").getAsString();
                 // iterates over liquidationData stored in memory
+                it = this.data.get("liquidation").iterator();
                 while (it.hasNext()) {
                     JsonElement elemOrig = it.next();
                     // orderId in liquidationData element
