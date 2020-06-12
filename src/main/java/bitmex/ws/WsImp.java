@@ -14,6 +14,7 @@ import javax.websocket.*;
 import java.io.IOException;
 import java.net.URI;
 import java.util.Deque;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -98,7 +99,7 @@ public class WsImp implements Ws {
     private final Map<String, JsonArray> data;
     private HeartbeatThread heartbeatThread;
     // allowed reconnect timestamp
-    private long reconnectStamp;
+    private Long reconnectStamp;
 
     /**
      * BitMex web socket client implementation for one symbol
@@ -121,10 +122,10 @@ public class WsImp implements Ws {
         this.userSession = null;
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
-        this.symbol = symbol;
         this.reconnectStamp = 0L;
+        this.symbol = symbol;
         /*
-         * With order book data 
+         * With order book data
          * this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
          *                "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
          */
@@ -250,6 +251,8 @@ public class WsImp implements Ws {
     public void onMessage(String message) throws InterruptedException {
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
+        if (!isSessionOpen())
+            return;
         this.heartbeatThread = new HeartbeatThread(this);
         //if it was an heartbeat message
         if (message.equalsIgnoreCase("pong"))
@@ -318,7 +321,6 @@ public class WsImp implements Ws {
         } else if (action.equals("update")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
-            // checks latency on the update
             check_latency(data.get("timestamp").getAsString());
             for (String key : data.keySet()) {
                 instrumentData.addProperty(key, data.get(key).getAsString());
@@ -334,11 +336,13 @@ public class WsImp implements Ws {
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
         long latency = System.currentTimeMillis() - updateTime;
-        if (latency > Ws.MAX_LATENCY && System.currentTimeMillis() > reconnectStamp) {
-            LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
-            // closes current websocket connection
-            this.closeSession();
+        synchronized (reconnectStamp) {
+            if (latency > Ws.MAX_LATENCY && System.currentTimeMillis() > reconnectStamp) {
+                reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
+                LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), reconnectStamp));
+                // closes current websocket connection
+                this.closeSession();
+            }
         }
     }
 
@@ -394,13 +398,13 @@ public class WsImp implements Ws {
                 liquidationData.add(elem);
             }
         } else if (action.equals("delete")) {
-            //copy of liquidationData to prevent ConcurrentModification Exception
-            JsonArray liquidationDataCopy = this.data.get("liquidation");
+            Iterator<JsonElement> it = this.data.get("liquidation").iterator();
             for (JsonElement elem : data) {
                 // orderID in object received element
                 String orderIDRec = elem.getAsJsonObject().get("orderID").getAsString();
-                // iterates over liquidationData stored in memory/
-                for (JsonElement elemOrig : liquidationDataCopy) {
+                // iterates over liquidationData stored in memory
+                while (it.hasNext()) {
+                    JsonElement elemOrig = it.next();
                     // orderId in liquidationData element
                     String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
                     // if same orderID
@@ -499,9 +503,7 @@ public class WsImp implements Ws {
                 orderData.add(elem);
             }
         } else if (obj.get("action").getAsString().equals("update")) {
-            //copy of orderData to prevent ConcurrentModification Exception
-            //JsonArray orderDataCopy = JsonParser.parseString(orderData.toString()).getAsJsonArray();
-            JsonArray orderDataCopy = this.data.get("order");
+            Iterator<JsonElement> it;
             boolean orderMatchFound;
             // iterates over object received
             for (JsonElement elemRec : data) {
@@ -510,7 +512,9 @@ public class WsImp implements Ws {
                 // orderID in object received element
                 String orderIDRec = objRec.get("orderID").getAsString();
                 // iterates over orderData stored in memory/
-                for (JsonElement elemOrig : orderDataCopy) {
+                it = this.data.get("order").iterator();
+                while (it.hasNext()) {
+                    JsonElement elemOrig = it.next();
                     // orderId in orderData element
                     String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
                     // if same orderID
@@ -589,12 +593,12 @@ public class WsImp implements Ws {
     @Override
     public JsonArray get_openOrders(String orderIDPrefix) {
         JsonArray ret = new JsonArray();
-        JsonArray openOrders = this.data.get("order");
-        for (JsonElement elemRec : openOrders) {
-            // ordStatus of order received
-            JsonElement ordStatus = elemRec.getAsJsonObject().get("ordStatus");
-            if (elemRec.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && (ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
-                ret.add(elemRec);
+        Iterator<JsonElement> it = this.data.get("order").iterator();
+        while (it.hasNext()) {
+            JsonElement elem = it.next();
+            JsonElement ordStatus = elem.getAsJsonObject().get("ordStatus");
+            if (elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && (ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
+                ret.add(elem);
         }
         return ret;
     }
@@ -602,12 +606,12 @@ public class WsImp implements Ws {
     @Override
     public JsonArray get_filledOrders(String orderIDPrefix) {
         JsonArray ret = new JsonArray();
-        JsonArray openOrders = this.data.get("order");
-        for (JsonElement elemRec : openOrders) {
-            // ordStatus of order received
-            JsonElement ordStatus = elemRec.getAsJsonObject().get("ordStatus");
-            if (elemRec.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && ordStatus.getAsString().equals("Filled"))
-                ret.add(elemRec);
+        Iterator<JsonElement> it = this.data.get("order").iterator();
+        while (it.hasNext()) {
+            JsonElement elem = it.next();
+            JsonElement ordStatus = elem.getAsJsonObject().get("ordStatus");
+            if (elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && ordStatus.getAsString().equals("Filled"))
+                ret.add(elem);
         }
         return ret;
     }
@@ -680,7 +684,7 @@ public class WsImp implements Ws {
      * @param message - message to be sent
      */
     protected void sendMessage(String message) {
-        if(isSessionOpen())
+        if (isSessionOpen())
             this.userSession.getAsyncRemote().sendText(message);
     }
 
