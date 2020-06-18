@@ -80,7 +80,7 @@ public class RestImp implements Rest {
          * Original: {"orderID":"[\"88dd843b-80a5-afcc-d8f4-5985f4c0f734\", \"7f4788f4-af46-a8e9-5304-d8df5a1f66d3\"]"}
          * After validation: {"orderID": ["88dd843b-80a5-afcc-d8f4-5985f4c0f734", "7f4788f4-af46-a8e9-5304-d8df5a1f66d3"]
          */
-        String validDataStr = data.toString().replace("\"[", "[").replace("]\"","]").replace("\\", "");
+        String validDataStr = data.toString().replace("\"[", "[").replace("]\"", "]").replace("\\", "");
 
         long expires = Auth.generate_expires();
         URI uri = target.getUri();
@@ -161,16 +161,23 @@ public class RestImp implements Rest {
      */
     private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
                              MultivaluedMap<String, Object> headers) {
+        String errLog;
+        JsonObject errorObj;
+        JsonArray errArr = new JsonArray();
         JsonReader reader = new JsonReader(new StringReader(response));
         reader.setLenient(true);
-        JsonObject errorObj = (JsonObject) JsonParser.parseReader(reader).getAsJsonObject().get("error");
-        String errLog = String.format("(%d) error on request: %s  Name: %s  Message: %s", status,
+        JsonElement obj = JsonParser.parseReader(reader);
+
+        if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error"))
+            return null;
+
+        errorObj = obj.getAsJsonObject().get("error").getAsJsonObject();
+        errLog = String.format("(%d) error on request: %s  Name: %s  Message: %s", status,
                 verb + endpoint, errorObj.get("name").toString(),
                 errorObj.get("message").toString());
-        JsonArray errArr = new JsonArray();
         errArr.add(errorObj);
 
-        if(status == 401 || status == 403) {
+        if (status == 401 || status == 403) {
             // Authentication error, forbidden
             LOGGER.severe(errLog);
             System.exit(1);
@@ -179,7 +186,7 @@ public class RestImp implements Rest {
             LOGGER.warning(errLog);
             sleep(3000); //waits 3000ms
             // same methods are expecting JsonObject and others expect a JsonArray
-            if(((verb.equals("PUT") || verb.equals("POST")) && endpoint.equals("/order")) || endpoint.equals("/order/cancelAllAfter") || endpoint.equals("/user/margin"))
+            if (((verb.equals("PUT") || verb.equals("POST")) && endpoint.equals("/order")) || endpoint.equals("/order/cancelAllAfter") || endpoint.equals("/user/margin"))
                 return errorObj.toString();
             return errArr.toString();
         } else if (status == 404) {
@@ -259,8 +266,8 @@ public class RestImp implements Rest {
     public JsonArray get_order(JsonObject data) {
         JsonArray response = new JsonArray();
         JsonArray arr = JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
-        for(JsonElement elem: arr) {
-            if( elem.getAsJsonObject().has("clOrdID") && elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix) )
+        for (JsonElement elem : arr) {
+            if (elem.getAsJsonObject().has("clOrdID") && elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix))
                 response.add(elem);
         }
         return response;

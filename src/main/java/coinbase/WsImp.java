@@ -52,7 +52,7 @@ public class WsImp {
     // last sequence number of ticker
     private long seqNum;
     // allowed reconnect timestamp
-    private long reconnectStamp;
+    private Long reconnectStamp;
 
     /**
      * Coinbase web socket client implementation for one symbol
@@ -143,7 +143,7 @@ public class WsImp {
         check_latency(data.get("time").getAsString());
         long newSeqNum = data.get("sequence").getAsLong();
         // if this update is more recent than the one we have in memory
-        if( newSeqNum > this.seqNum) {
+        if (newSeqNum > this.seqNum) {
             this.seqNum = newSeqNum;
             this.lastPrice = data.get("price").getAsFloat();
         }
@@ -171,15 +171,18 @@ public class WsImp {
 
     /**
      * Checks latency on a websocket update
+     *
      * @param timestamp - timestamp last update
      */
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
         long latency = System.currentTimeMillis() - updateTime;
-        if( latency > MAX_LATENCY && System.currentTimeMillis() > reconnectStamp ) {
-            LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
-            reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
-            this.closeSession();
+        synchronized (reconnectStamp) {
+            if (latency > MAX_LATENCY && System.currentTimeMillis() > reconnectStamp) {
+                LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d", latency));
+                reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
+                this.closeSession();
+            }
         }
     }
 
@@ -196,10 +199,11 @@ public class WsImp {
 
     /**
      * Closes current suer session if one is open
+     *
      * @return true if session closed with success, false otherwise
      */
     public boolean closeSession() {
-        if(isSessionOpen()) {
+        if (isSessionOpen()) {
             try {
                 this.userSession.close();
                 return true;
@@ -213,6 +217,7 @@ public class WsImp {
 
     /**
      * Gets current status of websocket connection
+     *
      * @return true if websocket connection is open
      */
     public boolean isSessionOpen() {
@@ -225,7 +230,7 @@ public class WsImp {
      * @param message - message to be sent
      */
     protected void sendMessage(String message) {
-        if(isSessionOpen())
+        if (isSessionOpen())
             this.userSession.getAsyncRemote().sendText(message);
     }
 }
