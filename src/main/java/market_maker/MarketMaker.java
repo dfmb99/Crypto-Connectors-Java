@@ -452,10 +452,12 @@ class MarketMakerManager {
     private long sanityCheckStamp;
     // mark price warning logs are made when this timestamp is hit
     private long markPriceLogStamp;
+    // mark price warning
+    private int markPriceLog;
     // list w/ orderIDs of open buy orders made by the algorithm
-    private List<String> openBuyOrds;
+    private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
-    private List<String> openSellOrds;
+    private final List<String> openSellOrds;
 
     public MarketMakerManager(String symbol) {
         e = new ExchangeInterface(symbol);
@@ -607,7 +609,7 @@ class MarketMakerManager {
             long now = System.currentTimeMillis();
             // to prevent spam of logging messages (only prints every x ms depending on user settings)
             if (now > markPriceLogStamp) {
-                markPriceLogStamp = now + Settings.MARK_PRICE_LOG_INTERVAL;
+                markPriceLogStamp = now + 300000L;
                 LOGGER.info(String.format("Using mark price from BitMex websocket: (websocket) %f, (calculated) %f, (spread) %f", wsMarkPrice, calculatedMarkPrice, spread));
             }
             return wsMarkPrice;

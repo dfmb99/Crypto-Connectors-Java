@@ -321,7 +321,8 @@ public class WsImp implements Ws {
         } else if (action.equals("update")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
             JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
-            check_latency(data.get("timestamp").getAsString());
+            if(data.has("timestamp"))
+                check_latency(data.get("timestamp").getAsString());
             for (String key : data.keySet()) {
                 instrumentData.addProperty(key, data.get(key).getAsString());
             }
@@ -594,9 +595,9 @@ public class WsImp implements Ws {
     @Override
     public JsonArray get_openOrders(String orderIDPrefix) {
         JsonArray ret = new JsonArray();
-        Iterator<JsonElement> it = this.data.get("order").iterator();
-        while (it.hasNext()) {
-            JsonElement elem = it.next();
+        JsonArray cpy = new JsonArray();
+        cpy.addAll(this.data.get("order"));
+        for (JsonElement elem : cpy) {
             JsonElement ordStatus = elem.getAsJsonObject().get("ordStatus");
             if (elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && (ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
                 ret.add(elem);
@@ -607,9 +608,9 @@ public class WsImp implements Ws {
     @Override
     public JsonArray get_filledOrders(String orderIDPrefix) {
         JsonArray ret = new JsonArray();
-        Iterator<JsonElement> it = this.data.get("order").iterator();
-        while (it.hasNext()) {
-            JsonElement elem = it.next();
+        JsonArray cpy = new JsonArray();
+        cpy.addAll(this.data.get("order"));
+        for (JsonElement elem : cpy) {
             JsonElement ordStatus = elem.getAsJsonObject().get("ordStatus");
             if (elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && ordStatus.getAsString().equals("Filled"))
                 ret.add(elem);
