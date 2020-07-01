@@ -18,10 +18,12 @@ public class Settings {
     // Market making configuration
     public static final long ORDER_SIZE = 20L;
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
-    public static final float SPREAD_INDEX = 60f;
-    public static final int SPREAD_SNAPS = 480;
-    public static final boolean POST_ONLY = false;
-    public static final boolean MARK_PRICE_CALC = false;
+    public static final float SPREAD_INDEX = 30f;
+    public static final float SPREAD_INDEX_FACTOR = 0.9f;
+    public static final int SPREAD_SNAPS = 720;
+    public static final boolean POST_ONLY = true;
+    public static final boolean MARK_PRICE_CALC = false; // calculate  mark price from spot exchanges
+    public static final boolean MARK_PRICE_QUOTE_MID_PRICE = false; // use last order filled price or mark price as quote mid price for next orders
 
     // Timeouts
 

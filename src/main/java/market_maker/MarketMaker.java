@@ -274,6 +274,15 @@ class ExchangeInterface {
     }
 
     /**
+     * Returns last order filled price
+     *
+     * @return last order filled price
+     */
+    protected float get_price_last_order_filled() {
+        return this.mexWs.get_price_last_order_filled();
+    }
+
+    /**
      * Returns true if buy order w/ orderID is filled
      *
      * @param orderID - orderID of buy order
@@ -452,8 +461,6 @@ class MarketMakerManager {
     private long sanityCheckStamp;
     // mark price warning logs are made when this timestamp is hit
     private long markPriceLogStamp;
-    // mark price warning
-    private int markPriceLog;
     // list w/ orderIDs of open buy orders made by the algorithm
     private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
@@ -553,14 +560,14 @@ class MarketMakerManager {
 
     /**
      * Calculates skew depending on current position size
-     *
+     * @param spreadIndex - index used in skew formula
      * @return skew
      */
-    private float get_position_skew() {
+    private float get_position_skew(float spreadIndex) {
         long currPos = e.get_position();
         float skew = 0;
 
-        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * get_spread_index() * 0.8f;
+        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * spreadIndex * Settings.SPREAD_INDEX_FACTOR;
         if (currPos > 0)
             skew = c * -1f;
         else if (currPos < 0)
@@ -576,14 +583,14 @@ class MarketMakerManager {
      */
     private float[] get_new_order_prices() {
         float[] prices = new float[2];
-
-        float quoteMidPrice = get_mark_price() * (1f + get_position_skew());
         float spreadIndex = get_spread_index();
-        prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - spreadIndex), e.get_tickSize());
-        prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + spreadIndex), e.get_tickSize());
+        float tickSize = e.get_tickSize();
+        float quoteMidPrice = get_mark_price() * (1f + get_position_skew(spreadIndex));
+        prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - spreadIndex), tickSize);
+        prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + spreadIndex), tickSize);
         if(Settings.POST_ONLY) {
-            prices[0] = Math.min(prices[0], (e.get_ask_price() - e.get_tickSize()));
-            prices[1] = Math.max(prices[1], (e.get_bid_price() + e.get_tickSize()));
+            prices[0] = Math.min(prices[0], (e.get_ask_price() - tickSize));
+            prices[1] = Math.max(prices[1], (e.get_bid_price() + tickSize));
         }
         return prices;
     }
@@ -596,7 +603,10 @@ class MarketMakerManager {
     private float get_mark_price() {
         // mark price received in bitmex websocket
         float wsMarkPrice = e.get_ws_mark_price();
+        float lastOrdFillPrice = e.get_price_last_order_filled();
 
+        if(!Settings.MARK_PRICE_QUOTE_MID_PRICE && lastOrdFillPrice > 0f)
+            return lastOrdFillPrice;
         if (!Settings.MARK_PRICE_CALC)
             return wsMarkPrice;
 
@@ -818,12 +828,13 @@ class MarketMakerManager {
     }
 
     private void print_status() {
+        float spreadIndex = get_spread_index();
         LOGGER.info(String.format("Position: %d", e.get_position()));
         LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
         LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
         LOGGER.info(String.format("Fair price: %f", get_mark_price()));
-        LOGGER.info(String.format("Spread index: %f", get_spread_index()));
-        LOGGER.info(String.format("Skew: %f", get_position_skew()));
+        LOGGER.info(String.format("Spread index: %f", spreadIndex));
+        LOGGER.info(String.format("Skew: %f", get_position_skew(spreadIndex)));
         LOGGER.info("-------------------------------------------------");
     }
 
@@ -833,7 +844,7 @@ class MarketMakerManager {
 
                 Long expiry = e.get_expiry();
                 if(expiry != null && System.currentTimeMillis() > expiry) {
-                    LOGGER.info(String.format("Contract expired. Ending algorithm execution."));
+                    LOGGER.info("Contract expired. Ending algorithm execution.");
                     System.exit(0);
                 }
                 //sanity check

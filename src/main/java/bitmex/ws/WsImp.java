@@ -189,7 +189,11 @@ public class WsImp implements Ws {
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
         // gets open orders for this symbol and updates memory
-        this.data.put("order", this.get_rest_orders());
+        JsonArray restOrds = this.get_rest_orders();
+        JsonArray restOrdsReverse = new JsonArray();
+        for (int i = restOrds.size()-1; i >= 0; i--)
+            restOrdsReverse.add(restOrds.get(i));
+        this.data.put("order", restOrdsReverse);
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
         sendMessage(String.format("{\"op\": \"authKeyExpires\", \"args\": [\"%s\", %d, \"%s\"]}", apiKey, expires, signature));
@@ -616,6 +620,15 @@ public class WsImp implements Ws {
                 ret.add(elem);
         }
         return ret;
+    }
+
+    @Override
+    public float get_price_last_order_filled() {
+        JsonArray fills = get_filledOrders("");
+        long diff = System.currentTimeMillis() - TimeStamp.getTimestamp(fills.get(fills.size() - 1).getAsJsonObject().get("timestamp").getAsString());
+        if(fills.size() > 0 && diff < 300000L)
+            return fills.get(fills.size() - 1).getAsJsonObject().get("avgPx").getAsFloat();
+        return -1f;
     }
 
     /**
