@@ -16,7 +16,7 @@ public class Settings {
     public static final String API_SECRET = "u5-PUEPK6LMQoxF4LakHtmCD4nO_jbFfsPkeNFznTFyP4O9P";
 
     // Market making configuration
-    public static final long ORDER_SIZE = 20L;
+    public static final long ORDER_SIZE = 20L; // single order size
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
     public static final float SPREAD_INDEX = 30f;
     public static final float SPREAD_INDEX_FACTOR = 0.9f;
