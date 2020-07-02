@@ -1,8 +1,8 @@
 package kraken;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 import javax.websocket.*;
 import java.io.IOException;
@@ -46,6 +46,7 @@ public class WsImp {
     private final static String URL = "wss://ws.kraken.com";
     private final static int RETRY_PERIOD = 5000;
 
+    private final Gson g;
     private final WebSocketContainer container;
     private HeartbeatThread heartbeatThread;
     private Session userSession;
@@ -59,6 +60,7 @@ public class WsImp {
      * Kraken web socket client implementation for one symbol
      */
     public WsImp(String symbol) {
+        this.g = new Gson();
         this.container = ContainerProvider.getWebSocketContainer();
         this.heartbeatThread = null;
         this.lastPrice = -1f;
@@ -126,14 +128,14 @@ public class WsImp {
 
         // if message starts with "{" we can parse it to json otherwise we received an array of data
         if(message.startsWith("{")) {
-            JsonObject response = JsonParser.parseString(message).getAsJsonObject();
+            JsonObject response = g.fromJson(message, JsonObject.class);
             if(response.has("channelName") && response.has("status") && response.get("channelName").getAsString().equalsIgnoreCase("ticker") && response.get("status").getAsString().equalsIgnoreCase("subscribed"))
                 this.tickerID = response.get("channelID").getAsInt();
             else if(response.has("event") && response.get("event").getAsString().equalsIgnoreCase("error"))
                 LOGGER.warning(response.get("errorMessage").getAsString());
         } else {
             LOGGER.fine("Received ticker data.");
-            JsonArray dataArr = JsonParser.parseString(message).getAsJsonArray();
+            JsonArray dataArr = g.fromJson(message, JsonArray.class);
             if(dataArr.get(0).getAsInt() == this.tickerID)
                 new Thread(() -> update_ticker(dataArr)).start();
         }

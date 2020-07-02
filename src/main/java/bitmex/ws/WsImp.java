@@ -2,10 +2,7 @@ package bitmex.ws;
 
 import bitmex.rest.Rest;
 import bitmex.rest.RestImp;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.google.gson.*;
 import utils.Auth;
 import utils.BinarySearch;
 import utils.TimeStamp;
@@ -87,6 +84,7 @@ public class WsImp implements Ws {
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
     private final WebSocketContainer container;
     private final RestImp rest;
+    private final Gson g;
     private Session userSession;
     private final String url;
     private final String apiKey;
@@ -100,6 +98,8 @@ public class WsImp implements Ws {
     private HeartbeatThread heartbeatThread;
     // allowed reconnect timestamp
     private Long reconnectStamp;
+    // copy of data of http order request when wss client is initiated
+    private JsonArray orderBackUp;
 
     /**
      * BitMex web socket client implementation for one symbol
@@ -113,6 +113,7 @@ public class WsImp implements Ws {
     public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol) {
         this.container = ContainerProvider.getWebSocketContainer();
         this.rest = rest;
+        this.g = new Gson();
         if (testnet)
             this.url = Ws.WS_TESTNET;
         else
@@ -191,8 +192,11 @@ public class WsImp implements Ws {
         // gets open orders for this symbol and updates memory
         JsonArray restOrds = this.get_rest_orders();
         JsonArray restOrdsReverse = new JsonArray();
-        for (int i = restOrds.size()-1; i >= 0; i--)
+        orderBackUp = new JsonArray();
+        for (int i = restOrds.size()-1; i >= 0; i--) {
             restOrdsReverse.add(restOrds.get(i));
+            orderBackUp.add(restOrds.get(i));
+        }
         this.data.put("order", restOrdsReverse);
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
@@ -261,7 +265,7 @@ public class WsImp implements Ws {
         //if it was an heartbeat message
         if (message.equalsIgnoreCase("pong"))
             return;
-        JsonObject obj = JsonParser.parseString(message).getAsJsonObject();
+        JsonObject obj = g.fromJson(message, JsonObject.class);
         if (obj.has("subscribe")) {
             LOGGER.fine("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
@@ -625,7 +629,7 @@ public class WsImp implements Ws {
     @Override
     public float get_price_last_order_filled() {
         JsonArray fills = get_filledOrders("");
-        if(fills.size() > 0 )
+        if(fills.size() > 0 && !orderBackUp.equals(this.data.get("order")))
             return fills.get(fills.size() - 1).getAsJsonObject().get("avgPx").getAsFloat();
         return -1f;
     }
@@ -638,7 +642,6 @@ public class WsImp implements Ws {
     private JsonArray get_rest_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        //params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
         params.addProperty("count", Ws.ORDER_MAX_LEN);
         params.addProperty("reverse", true);
         return this.rest.get_order(params);

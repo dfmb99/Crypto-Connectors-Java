@@ -1,7 +1,8 @@
 package itbit;
 
 import bitmex.rest.Rest;
-import com.google.gson.JsonParser;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 
@@ -18,6 +19,7 @@ import java.util.logging.Logger;
 public class WsImp {
     private final static Logger LOGGER = Logger.getLogger(WsImp.class.getName());
     private final static String URL = "https://api.itbit.com/v1/";
+    private final Gson g;
     private final String symbol;
     private float lastPrice;
 
@@ -27,6 +29,7 @@ public class WsImp {
     private final static int RETRY_PERIOD = 3000;
 
     public WsImp(String symbol) {
+        this.g = new Gson();
         this.symbol = symbol;
         this.lastPrice = -1f;
         new Thread(this::poll_server).start();
@@ -35,7 +38,7 @@ public class WsImp {
 
     private void poll_server() {
         while (true) {
-            this.lastPrice = JsonParser.parseString(Objects.requireNonNull(get_ticker_call())).getAsJsonObject().get("lastPrice").getAsFloat();
+            this.lastPrice = g.fromJson(Objects.requireNonNull(get_ticker_call()), JsonObject.class).get("lastPrice").getAsFloat();
         }
     }
 

@@ -5,13 +5,11 @@ import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import utils.MathCustom;
 import utils.SpotPricesTracker;
 import utils.TimeStamp;
 
 import java.io.IOException;
-import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -75,12 +73,13 @@ class ExchangeInterface {
         return this.mexWs.isSessionOpen();
     }
 
-    /**
+    /*
      * Gets instrument state
-     */
+
     protected String get_instrument_state() {
         return this.mexRest.get_instrument(this.symbol).get(0).getAsJsonObject().get("state").getAsString();
     }
+     */
 
     /**
      * Returns tick size of contract
@@ -218,7 +217,7 @@ class ExchangeInterface {
 
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        params.addProperty("filter", JsonParser.parseString("{\"ordStatus.isTerminated\": false}").toString());
+        params.addProperty("filter", "{\"ordStatus.isTerminated\":false}");
         params.addProperty("count", 25);
         params.addProperty("reverse", true);
 
@@ -367,15 +366,14 @@ class ExchangeInterface {
         return order.get("price").getAsFloat();
     }
 
-    /**
+    /*
      * Returns lowest open buy order orderID
      *
      * @param order - JsonObject
      * @return orderID
-     */
     protected String get_orderID(JsonObject order) {
         return order.get("orderID").getAsString();
-    }
+    }*/
 
     /**
      * Returns JsonObject[] w/ top of the book orders (bid and ask order more more closer to midPrice)
@@ -399,15 +397,14 @@ class ExchangeInterface {
         return new JsonObject[]{highestBuy, lowestSell};
     }
 
-    /**
+    /*
      * Places an order
      *
      * @param order - order to be placed
      * @return JsonObject - response of request
-     */
     protected JsonObject place_order(JsonObject order) {
         return this.mexRest.post_order(order);
-    }
+    }*/
 
     /**
      * Places multiple orders as bulk
@@ -425,22 +422,20 @@ class ExchangeInterface {
      * Amends an order
      *
      * @param order - order to be amended
-     * @return JsonObject - response of request
      */
-    protected JsonObject amend_order(JsonObject order) {
-        return this.mexRest.put_order(order);
+    protected void amend_order(JsonObject order) {
+        this.mexRest.put_order(order);
     }
 
     /**
      * Amends multiple orders as bulk
      *
      * @param orders - orders to be amended
-     * @return JsonObject - response of request
      */
-    protected JsonArray amend_order_bulk(JsonArray orders) {
+    protected void amend_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
         params.add("orders", orders);
-        return this.mexRest.put_order_bulk(params);
+        this.mexRest.put_order_bulk(params);
     }
 
     /**
@@ -501,12 +496,11 @@ class MarketMakerManager {
         return params;
     }
 
-    /**
+    /*
      * Prepares a market order
      *
      * @param orderQty - orderQty, if negative sell order
      * @return order - order built
-     */
     private JsonObject prepare_market_order(long orderQty) {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
@@ -514,7 +508,7 @@ class MarketMakerManager {
         params.addProperty("ordType", "Market");
 
         return params;
-    }
+    }*/
 
     /**
      * Checks if short position limit is exceeded
@@ -886,7 +880,7 @@ public class MarketMaker {
 
     private static void loggingConfig() {
         Logger log = Logger.getLogger("");
-        Handler fileHandler = null;
+        Handler fileHandler;
         try {
             fileHandler = new FileHandler(String.format("./logs/%s.log", Settings.SYMBOL));
             SimpleFormatter simple = new SimpleFormatter();
@@ -897,7 +891,7 @@ public class MarketMaker {
             // Do nothing
         }
     }
-
+/*
     private static void fileWatcher() throws IOException, InterruptedException {
         WatchService watchService
                 = FileSystems.getDefault().newWatchService();
@@ -920,5 +914,5 @@ public class MarketMaker {
             }
             key.reset();
         }
-    }
+    }*/
 }

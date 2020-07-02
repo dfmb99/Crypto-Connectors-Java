@@ -28,7 +28,7 @@ public class Settings {
     // Timeouts
 
     // How long to wait in each cycle to check / post orders
-    public static final int LOOP_INTERVAL = 500;
+    public static final int LOOP_INTERVAL = 100;
     // How often to perform sanity checks
     public static long SANITY_CHECK_INTERVAL = 60000L; // 1minute
 

@@ -1,10 +1,9 @@
 package bitmex.rest;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import com.google.gson.stream.JsonReader;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import utils.Auth;
@@ -14,7 +13,6 @@ import javax.ws.rs.client.*;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
-import java.io.StringReader;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -27,6 +25,7 @@ public class RestImp implements Rest {
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
 
 
+    private final Gson g;
     private final Client client;
     private final String url;
     private final String apiKey;
@@ -46,6 +45,7 @@ public class RestImp implements Rest {
             LOGGER.severe("orderIDPrefix max length is 8.");
             System.exit(1);
         }
+        this.g = new Gson();
         if (testnet)
             this.url = Rest.REST_TESTNET;
         else
@@ -76,7 +76,7 @@ public class RestImp implements Rest {
                 .header("content-type", "application/json; charset=utf-8")
                 .header("connection", "keep-alive");
 
-        /** Validates data
+        /* Validates data
          * Original: {"orderID":"[\"88dd843b-80a5-afcc-d8f4-5985f4c0f734\", \"7f4788f4-af46-a8e9-5304-d8df5a1f66d3\"]"}
          * After validation: {"orderID": ["88dd843b-80a5-afcc-d8f4-5985f4c0f734", "7f4788f4-af46-a8e9-5304-d8df5a1f66d3"]
          */
@@ -164,9 +164,7 @@ public class RestImp implements Rest {
         String errLog;
         JsonObject errorObj;
         JsonArray errArr = new JsonArray();
-        JsonReader reader = new JsonReader(new StringReader(response));
-        reader.setLenient(true);
-        JsonElement obj = JsonParser.parseReader(reader);
+        JsonElement obj = g.fromJson(response, JsonElement.class);
 
         if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error"))
             return null;
@@ -238,19 +236,19 @@ public class RestImp implements Rest {
 
     @Override
     public JsonArray get_execution(JsonObject data) {
-        return JsonParser.parseString(api_call("GET", "/execution", data)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/execution", data), JsonArray.class);
     }
 
     @Override
     public JsonArray get_execution_tradeHistory(JsonObject data) {
-        return JsonParser.parseString(api_call("GET", "/execution/tradeHistory", data)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/execution/tradeHistory", data), JsonArray.class);
     }
 
     @Override
     public JsonArray get_instrument(String symbol) {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", symbol);
-        return JsonParser.parseString(api_call("GET", "/instrument", params)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/instrument", params), JsonArray.class);
     }
 
     @Override
@@ -259,13 +257,13 @@ public class RestImp implements Rest {
         params.addProperty("symbol", compIndex);
         params.addProperty("count", 50);
         params.addProperty("reverse", true);
-        return JsonParser.parseString(api_call("GET", "/instrument/compositeIndex", params)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/instrument/compositeIndex", params), JsonArray.class);
     }
 
     @Override
     public JsonArray get_order(JsonObject data) {
         JsonArray response = new JsonArray();
-        JsonArray arr = JsonParser.parseString(api_call("GET", "/order", data)).getAsJsonArray();
+        JsonArray arr = g.fromJson(api_call("GET", "/order", data), JsonArray.class);
         for (JsonElement elem : arr) {
             if (elem.getAsJsonObject().has("clOrdID") && elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix))
                 response.add(elem);
@@ -275,29 +273,29 @@ public class RestImp implements Rest {
 
     @Override
     public JsonObject put_order(JsonObject data) {
-        return JsonParser.parseString(api_call("PUT", "/order", data)).getAsJsonObject();
+        return g.fromJson(api_call("PUT", "/order", data), JsonObject.class);
     }
 
     @Override
     public JsonObject post_order(JsonObject data) {
         //Adds cl0rdID property on order
         data.addProperty("clOrdID", setNewOrderID());
-        return JsonParser.parseString(api_call("POST", "/order", data)).getAsJsonObject();
+        return g.fromJson(api_call("POST", "/order", data), JsonObject.class);
     }
 
     @Override
     public JsonArray del_order(JsonObject data) {
-        return JsonParser.parseString(api_call("DELETE", "/order", data)).getAsJsonArray();
+        return g.fromJson(api_call("DELETE", "/order", data), JsonArray.class);
     }
 
     @Override
     public JsonArray del_order_all(JsonObject data) {
-        return JsonParser.parseString(api_call("DELETE", "/order/all", data)).getAsJsonArray();
+        return g.fromJson(api_call("DELETE", "/order/all", data), JsonArray.class);
     }
 
     @Override
     public JsonArray put_order_bulk(JsonObject data) {
-        return JsonParser.parseString(api_call("PUT", "/order/bulk", data)).getAsJsonArray();
+        return g.fromJson(api_call("PUT", "/order/bulk", data), JsonArray.class);
     }
 
     @Override
@@ -306,38 +304,38 @@ public class RestImp implements Rest {
         JsonArray orders = data.get("orders").getAsJsonArray();
         for (JsonElement e : orders)
             e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());
-        return JsonParser.parseString(api_call("POST", "/order/bulk", data)).getAsJsonArray();
+        return g.fromJson(api_call("POST", "/order/bulk", data), JsonArray.class);
     }
 
     @Override
     public JsonObject post_order_cancelAllAfter(JsonObject data) {
-        return JsonParser.parseString(api_call("POST", "/order/cancelAllAfter", data)).getAsJsonObject();
+        return g.fromJson(api_call("POST", "/order/cancelAllAfter", data), JsonObject.class);
     }
 
     @Override
     public JsonArray get_position(JsonObject data) {
-        return JsonParser.parseString(api_call("GET", "/position", data)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/position", data), JsonArray.class);
     }
 
     @Override
     public JsonArray get_trade_bucketed(JsonObject data) {
-        return JsonParser.parseString(api_call("GET", "/trade/bucketed", data)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/trade/bucketed", data), JsonArray.class);
     }
 
     @Override
     public JsonObject get_user_margin() {
         //BitMex only allows BTC as margin
-        JsonObject data = JsonParser.parseString("{'currency': 'XBt'}").getAsJsonObject();
-        return JsonParser.parseString(api_call("GET", "/user/margin", data)).getAsJsonObject();
+        JsonObject data = g.fromJson("{'currency': 'XBt'}", JsonObject.class);
+        return g.fromJson(api_call("GET", "/user/margin", data), JsonObject.class);
     }
 
     @Override
     public JsonArray get_user_walletHistory(JsonObject data) {
-        return JsonParser.parseString(api_call("GET", "/user/walletHistory", data)).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/user/walletHistory", data), JsonArray.class);
     }
 
     @Override
     public JsonArray get_user_quoteFillRatio() {
-        return JsonParser.parseString(api_call("GET", "/user/quoteFillRatio", new JsonObject())).getAsJsonArray();
+        return g.fromJson(api_call("GET", "/user/quoteFillRatio", new JsonObject()), JsonArray.class);
     }
 }

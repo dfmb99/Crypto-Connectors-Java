@@ -1,7 +1,7 @@
 package bitstamp;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 
 import javax.websocket.*;
 import java.io.IOException;
@@ -17,6 +17,7 @@ public class WsImp {
     private final static int MAX_LATENCY = 15000;
     private final static int FORCE_RECONNECT_INTERVAL = 60000;
 
+    private final Gson g;
     private final WebSocketContainer container;
     private Session userSession;
     private final String symbol;
@@ -28,6 +29,7 @@ public class WsImp {
      * Bitstamp web socket client implementation for one symbol
      */
     public WsImp(String symbol) {
+        this.g = new Gson();
         this.container = ContainerProvider.getWebSocketContainer();
         this.lastPrice = -1f;
         this.symbol = symbol;
@@ -84,7 +86,7 @@ public class WsImp {
      */
     @OnMessage
     public void onMessage(String message) {
-        JsonObject response = JsonParser.parseString(message).getAsJsonObject();
+        JsonObject response = g.fromJson(message, JsonObject.class);
         String event = response.get("event").getAsString();
         JsonObject data = response.get("data").getAsJsonObject();
 

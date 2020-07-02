@@ -1,7 +1,7 @@
 package coinbase;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import utils.TimeStamp;
 
 import javax.websocket.*;
@@ -43,6 +43,7 @@ public class WsImp {
     private final static int RETRY_PERIOD = 5000;
     private final static int FORCE_RECONNECT_INTERVAL = 60000;
 
+    private final Gson g;
     private final WebSocketContainer container;
     private HeartbeatThread heartbeatThread;
     private Session userSession;
@@ -58,6 +59,7 @@ public class WsImp {
      * Coinbase web socket client implementation for one symbol
      */
     public WsImp(String symbol) {
+        this.g = new Gson();
         this.container = ContainerProvider.getWebSocketContainer();
         this.heartbeatThread = null;
         this.lastPrice = -1f;
@@ -124,7 +126,7 @@ public class WsImp {
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = new HeartbeatThread(this);
-        JsonObject response = JsonParser.parseString(message).getAsJsonObject();
+        JsonObject response = g.fromJson(message, JsonObject.class);
         String type = response.get("type").getAsString();
 
         if (type.equalsIgnoreCase("ticker")) {
