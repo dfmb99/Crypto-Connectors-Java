@@ -1,7 +1,6 @@
 package bitmex.ws;
 
 import com.google.gson.JsonArray;
-import market_maker.Settings;
 
 import javax.websocket.ClientEndpoint;
 
@@ -12,7 +11,7 @@ public interface Ws {
     String WS_MAINNET = "wss://www.bitmex.com/realtime";
 
     int LIQ_MAX_LEN = 50;
-    int TRADE_BIN_MAX_LEN = Settings.SPREAD_SNAPS;
+    int TRADE_BIN_MAX_LEN = 50;
     int EXEC_MAX_LEN = 50;
     int ORDER_MAX_LEN = 50;
     int RETRY_PERIOD = 5000;
@@ -83,19 +82,31 @@ public interface Ws {
 
     /**
      * Returns open orders
+     *
+     * @param orderIDPrefix - orderID prefix
      * @return JsonArray data
      */
     JsonArray get_openOrders(String orderIDPrefix);
 
     /**
      * Returns filled orders
+     *
+     * @param orderIDPrefix - orderID prefix
      * @return JsonArray data
      */
     JsonArray get_filledOrders(String orderIDPrefix);
 
     /**
      * Returns last order filled price
+     *
+     * @param orderIDPrefix - orderID prefix
      * @return last order filled price
      */
-    float get_price_last_order_filled();
+    float get_price_last_order_filled(String orderIDPrefix);
+
+    /**
+     * Returns .bvol7d index last price
+     * @return .bvol7d index last price
+     */
+    float get_bvol7d();
 }

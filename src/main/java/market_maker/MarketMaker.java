@@ -149,6 +149,15 @@ class ExchangeInterface {
     }
 
     /**
+     * Returns .bvol7d index last price
+     *
+     * @return .bvol7d index last price
+     */
+    protected float get_bvol7d() {
+        return this.mexWs.get_bvol7d();
+    }
+
+    /**
      * Gets mark price from BitMex websocket
      */
     protected float get_ws_mark_price() {
@@ -278,7 +287,7 @@ class ExchangeInterface {
      * @return last order filled price
      */
     protected float get_price_last_order_filled() {
-        return this.mexWs.get_price_last_order_filled();
+        return this.mexWs.get_price_last_order_filled(orderIDPrefix);
     }
 
     /**
@@ -532,11 +541,10 @@ class MarketMakerManager {
         return e.get_position() >= Settings.MAX_POSITION;
     }
 
-    /**
+    /*
      * Returns spread index of current contract, based on historical volatility
      *
      * @return volIndex as float
-     */
     private float get_spread_index() {
         JsonArray arr = e.get_tradeBin1m();
         float[] closeArr = new float[arr.size() - 1];
@@ -547,6 +555,21 @@ class MarketMakerManager {
         }
         float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
         currVolIndex = currVolIndex * (float) Math.sqrt(1f / ((float) closeArr.length / Settings.SPREAD_INDEX));
+        float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
+
+        return Math.max(currVolIndex, minimumSpread);
+    }  */
+
+    /**
+     * Returns spread index of current contract, based on historical volatility
+     *
+     * @return volIndex as float
+     */
+    private float get_spread_index() {
+        float midPrice = e.get_mid_price();
+
+        float currVolIndex = e.get_bvol7d() / 100f;
+        currVolIndex = currVolIndex * (float) Math.sqrt(1f / ( 10080f / Settings.SPREAD_INDEX));
         float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
 
         return Math.max(currVolIndex, minimumSpread);

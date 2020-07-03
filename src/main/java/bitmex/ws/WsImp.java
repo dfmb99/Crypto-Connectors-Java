@@ -130,9 +130,10 @@ public class WsImp implements Ws {
          * this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
          *                "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
          */
-        // No order book data
+
+        // No order book data w/ .BVOL7D index updates
         this.setSubscriptions("\"instrument:" + symbol + "\",\"liquidation:" + symbol + "\"," +
-                "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\"");
+                "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\",\"instrument:.BVOL7D\"");
         this.connect();
         this.waitForData();
     }
@@ -193,7 +194,7 @@ public class WsImp implements Ws {
         JsonArray restOrds = this.get_rest_orders();
         JsonArray restOrdsReverse = new JsonArray();
         orderBackUp = new JsonArray();
-        for (int i = restOrds.size()-1; i >= 0; i--) {
+        for (int i = restOrds.size() - 1; i >= 0; i--) {
             restOrdsReverse.add(restOrds.get(i));
             orderBackUp.add(restOrds.get(i));
         }
@@ -323,13 +324,31 @@ public class WsImp implements Ws {
      * @param obj - obj received from web socket
      */
     private void update_intrument(JsonObject obj) {
+        // action of instrument update
         String action = obj.get("action").getAsString();
+        // data of instrument udpate
+        JsonArray dataArr = obj.get("data").getAsJsonArray();
+        // symbol of instrument update
+        String symbol = dataArr.get(0).getAsJsonObject().get("symbol").getAsString();
+
+        // update of index instrument (eg: .BVOL24H, .BVOL7D)
+        if (symbol.startsWith(".") && (action.equals("partial") || action.equals("update"))) {
+            JsonArray lastPrice = new JsonArray();
+            JsonObject dataObj = dataArr.get(0).getAsJsonObject();
+            if (dataObj.has("lastPrice")) {
+                lastPrice.add(dataObj.get("lastPrice").getAsFloat());
+                this.data.put(symbol, lastPrice);
+            }
+            return;
+        }
+
+        // else its a tradable symbol
         if (action.equals("partial")) {
-            this.data.put("instrument", obj.get("data").getAsJsonArray());
+            this.data.put("instrument", dataArr);
         } else if (action.equals("update")) {
             JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
-            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
-            if(data.has("timestamp"))
+            JsonObject data = dataArr.get(0).getAsJsonObject();
+            if (data.has("timestamp"))
                 check_latency(data.get("timestamp").getAsString());
             for (String key : data.keySet()) {
                 instrumentData.addProperty(key, data.get(key).getAsString());
@@ -627,10 +646,18 @@ public class WsImp implements Ws {
     }
 
     @Override
-    public float get_price_last_order_filled() {
-        JsonArray fills = get_filledOrders("");
-        if(fills.size() > 0 && !orderBackUp.equals(this.data.get("order")))
+    public float get_price_last_order_filled(String orderIDPrefix) {
+        JsonArray fills = get_filledOrders(orderIDPrefix);
+        if (fills.size() > 0 && !orderBackUp.equals(this.data.get("order")))
             return fills.get(fills.size() - 1).getAsJsonObject().get("avgPx").getAsFloat();
+        return -1f;
+    }
+
+    @Override
+    public float get_bvol7d() {
+        JsonArray bvol7d = this.data.get(".BVOL7D");
+        if(!bvol7d.isJsonNull() && bvol7d.size() > 0)
+            return bvol7d.get(0).getAsFloat();
         return -1f;
     }
 
