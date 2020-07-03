@@ -92,10 +92,11 @@ class ExchangeInterface {
 
     /**
      * Gets timestamp of contract expiry if not perpetual, null otherwise
+     *
      * @return timestamp of contract expiry if not perpetual, null otherwise
      */
     protected Long get_expiry() {
-        if(this.expiry == null)
+        if (this.expiry == null)
             return null;
         return TimeStamp.getTimestamp(this.expiry);
     }
@@ -478,9 +479,9 @@ class MarketMakerManager {
         this.openBuyOrds = new ArrayList<>();
         this.openSellOrds = new ArrayList<>();
         JsonArray[] openOrders = e.rest_get_open_orders();
-        for(JsonElement elem: openOrders[0])
+        for (JsonElement elem : openOrders[0])
             this.openBuyOrds.add(elem.getAsJsonObject().get("orderID").getAsString());
-        for(JsonElement elem: openOrders[1])
+        for (JsonElement elem : openOrders[1])
             this.openSellOrds.add(elem.getAsJsonObject().get("orderID").getAsString());
         run_loop();
     }
@@ -569,7 +570,7 @@ class MarketMakerManager {
         float midPrice = e.get_mid_price();
 
         float currVolIndex = e.get_bvol7d() / 100f;
-        currVolIndex = currVolIndex * (float) Math.sqrt(1f / ( 10080f / Settings.SPREAD_INDEX));
+        currVolIndex = currVolIndex * (float) Math.sqrt(1f / (10080f / Settings.SPREAD_INDEX));
         float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
 
         return Math.max(currVolIndex, minimumSpread);
@@ -577,6 +578,7 @@ class MarketMakerManager {
 
     /**
      * Calculates skew depending on current position size
+     *
      * @param spreadIndex - index used in skew formula
      * @return skew
      */
@@ -605,7 +607,7 @@ class MarketMakerManager {
         float quoteMidPrice = get_mark_price() * (1f + get_position_skew(spreadIndex));
         prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - spreadIndex), tickSize);
         prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + spreadIndex), tickSize);
-        if(Settings.POST_ONLY) {
+        if (Settings.POST_ONLY) {
             prices[0] = Math.min(prices[0], (e.get_ask_price() - tickSize));
             prices[1] = Math.max(prices[1], (e.get_bid_price() + tickSize));
         }
@@ -618,12 +620,13 @@ class MarketMakerManager {
      * @return mark price
      */
     private float get_mark_price() {
-        // mark price received in bitmex websocket
-        float wsMarkPrice = e.get_ws_mark_price();
-        float lastOrdFillPrice = e.get_price_last_order_filled();
+        if (!Settings.MARK_PRICE_QUOTE_MID_PRICE) {
+            float lastOrdFillPrice = e.get_price_last_order_filled();
+            if (lastOrdFillPrice > 0f)
+                return lastOrdFillPrice;
+        }
 
-        if(!Settings.MARK_PRICE_QUOTE_MID_PRICE && lastOrdFillPrice > 0f)
-            return lastOrdFillPrice;
+        float wsMarkPrice = e.get_ws_mark_price();
         if (!Settings.MARK_PRICE_CALC)
             return wsMarkPrice;
 
@@ -658,7 +661,7 @@ class MarketMakerManager {
                 (get_spread_abs(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
             LOGGER.info("Spread wide, quoting both sides, amending both orders.");
             amend_orders();
-        }else if((short_position_limit_exceeded() && topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() < 1 && get_spread_abs(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) ||
+        } else if ((short_position_limit_exceeded() && topBookOrds[0].keySet().size() > 0 && topBookOrds[1].keySet().size() < 1 && get_spread_abs(e.get_order_price(topBookOrds[0]), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) ||
                 (long_position_limit_exceeded() && topBookOrds[1].keySet().size() > 0 && topBookOrds[0].keySet().size() < 1 && get_spread_abs(e.get_order_price(topBookOrds[1]), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
             LOGGER.info("Spread wide, quoting one side, amending order.");
             amend_orders();
@@ -725,9 +728,9 @@ class MarketMakerManager {
         float markPrice = get_mark_price();
         JsonObject[] topBookOrds = e.get_topBook_orders();
 
-        if(this.openBuyOrds.removeIf(e::is_buy_order_filled))
+        if (this.openBuyOrds.removeIf(e::is_buy_order_filled))
             LOGGER.info("Buy order filled.");
-        if(this.openSellOrds.removeIf(e::is_sell_order_filled))
+        if (this.openSellOrds.removeIf(e::is_sell_order_filled))
             LOGGER.info("Sell order filled.");
 
         // place new buy order, if no buy order is opened
@@ -818,18 +821,18 @@ class MarketMakerManager {
         }
 
         openOrders = e.rest_get_open_orders();
-        if ( openOrders[0].size() < 1 && this.openBuyOrds.size() > 0) {
+        if (openOrders[0].size() < 1 && this.openBuyOrds.size() > 0) {
             LOGGER.info("Removing buy order from memory. No buy order received from server.");
             this.openBuyOrds.remove(0);
-        }else if( openOrders[0].size() > 0 && this.openBuyOrds.size() < 1) {
+        } else if (openOrders[0].size() > 0 && this.openBuyOrds.size() < 1) {
             LOGGER.info("Adding buy order to memory. Buy order received from server.");
             this.openBuyOrds.add(openOrders[0].get(0).getAsJsonObject().get("orderID").getAsString());
         }
 
-        if ( openOrders[1].size() < 1 && this.openSellOrds.size() > 0) {
+        if (openOrders[1].size() < 1 && this.openSellOrds.size() > 0) {
             LOGGER.info("Removing sell order from memory. No sell order received from server.");
             this.openSellOrds.remove(0);
-        } else if( openOrders[1].size() > 1 && this.openSellOrds.size() < 1){
+        } else if (openOrders[1].size() > 1 && this.openSellOrds.size() < 1) {
             LOGGER.info("Adding sell order to memory. Sell order received from server.");
             this.openSellOrds.add(openOrders[1].get(0).getAsJsonObject().get("orderID").getAsString());
         }
@@ -860,7 +863,7 @@ class MarketMakerManager {
             try {
 
                 Long expiry = e.get_expiry();
-                if(expiry != null && System.currentTimeMillis() > expiry) {
+                if (expiry != null && System.currentTimeMillis() > expiry) {
                     LOGGER.info("Contract expired. Ending algorithm execution.");
                     System.exit(0);
                 }

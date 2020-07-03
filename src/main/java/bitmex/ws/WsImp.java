@@ -649,7 +649,7 @@ public class WsImp implements Ws {
     public float get_price_last_order_filled(String orderIDPrefix) {
         JsonArray fills = get_filledOrders(orderIDPrefix);
         if (fills.size() > 0 && !orderBackUp.equals(this.data.get("order")))
-            return fills.get(fills.size() - 1).getAsJsonObject().get("avgPx").getAsFloat();
+            return fills.get(fills.size() - 1).getAsJsonObject().get("price").getAsFloat();
         return -1f;
     }
 
