@@ -139,7 +139,7 @@ public class WsImp {
     private void waitForData() {
         while (this.lastPrice < 0.0) {
             try {
-                Thread.sleep(10);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 // Do nothing
             }

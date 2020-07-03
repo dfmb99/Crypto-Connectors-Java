@@ -694,7 +694,7 @@ public class WsImp implements Ws {
     private void waitForData() {
         while (this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") == null) {
             try {
-                Thread.sleep(10);
+                Thread.sleep(100);
             } catch (InterruptedException e) {
                 // Do nothing
             }
