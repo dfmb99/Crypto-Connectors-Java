@@ -5,6 +5,7 @@ public class Order {
     private String clOrdID;
     private String side;
     private String ordType;
+    private String ordStatus;
     private Long orderQty;
     private Float price;
 
@@ -56,7 +57,33 @@ public class Order {
         this.price = price;
     }
 
+    public String getOrdStatus() {
+        return ordStatus;
+    }
+
+    public void setOrdStatus(String ordStatus) {
+        this.ordStatus = ordStatus;
+    }
+
     public boolean equals(Order other) {
-        return this.getOrderID().equals(other.orderID);
+        return this.orderID.equals(other.getOrderID());
+    }
+
+    /**
+     * Updates current object with other object data
+     *
+     * @param other - updated object
+     */
+    public void update(Order other) {
+        if(side != null)
+            this.side = other.getSide();
+        if(ordType != null)
+            this.ordType = other.getOrdType();
+        if(ordStatus != null)
+            this.ordStatus = other.getOrdStatus();
+        if(orderQty != null)
+            this.orderQty = other.getOrderQty();
+        if(price != null)
+            this.price = other.getPrice();
     }
 }

@@ -59,7 +59,7 @@ class ExchangeInterface {
         // if we are calculating mark price ourselves
         if (Settings.MARK_PRICE_CALC) {
             this.spotPrices = new SpotPricesTracker(symbol);
-            this.get_instrument_composite_index();
+            //this.get_instrument_composite_index();
         }
 
     }
@@ -103,7 +103,7 @@ class ExchangeInterface {
 
     /**
      * Get current instrument indixes composition and weights
-     */
+
     protected void get_instrument_composite_index() {
         this.nextIndexUpdate = TimeStamp.getTimestamp(this.mexRest.get_instrument("XBT:quarterly").get(0).getAsJsonObject().get("expiry").getAsString());
         // request to know composition of index on the symbol we are quoting
@@ -120,7 +120,7 @@ class ExchangeInterface {
         }
 
         spotPrices.addExchanges(exchangeRefs.toArray(new String[0]));
-    }
+    }*/
 
     /**
      * Returns bid price
@@ -231,13 +231,13 @@ class ExchangeInterface {
         params.addProperty("count", 25);
         params.addProperty("reverse", true);
 
-        JsonArray openOrders = this.mexRest.get_order(params);
+        /*JsonArray openOrders = this.mexRest.get_order(params);
         for (JsonElement elem : openOrders) {
             if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
                 arr[0].add(elem);
             else
                 arr[1].add(elem);
-        }
+        }*/
 
         return arr;
     }
@@ -280,15 +280,6 @@ class ExchangeInterface {
                 arr[1].add(elem);
         }
         return arr;
-    }
-
-    /**
-     * Returns last order filled price
-     *
-     * @return last order filled price
-     */
-    protected float get_price_last_order_filled() {
-        return this.mexWs.get_price_last_order_filled(orderIDPrefix);
     }
 
     /**
@@ -425,7 +416,8 @@ class ExchangeInterface {
     protected JsonArray place_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
         params.add("orders", orders);
-        return this.mexRest.post_order_bulk(params);
+        //return this.mexRest.post_order_bulk(params);
+        return null;
     }
 
     /**
@@ -620,11 +612,6 @@ class MarketMakerManager {
      * @return mark price
      */
     private float get_mark_price() {
-        if (!Settings.MARK_PRICE_QUOTE_MID_PRICE) {
-            float lastOrdFillPrice = e.get_price_last_order_filled();
-            if (lastOrdFillPrice > 0f)
-                return lastOrdFillPrice;
-        }
 
         float wsMarkPrice = e.get_ws_mark_price();
         if (!Settings.MARK_PRICE_CALC)
@@ -860,7 +847,6 @@ class MarketMakerManager {
 
     private void run_loop() {
         while (true) {
-            try {
 
                 Long expiry = e.get_expiry();
                 if (expiry != null && System.currentTimeMillis() > expiry) {
@@ -877,18 +863,14 @@ class MarketMakerManager {
                 // Indexes weights get updated after quarterly futures expiry + 5 seconds
                 if (Settings.MARK_PRICE_CALC && System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
                     LOGGER.info("New quarterly expiry, updating index weights.");
-                    e.get_instrument_composite_index();
+                   // e.get_instrument_composite_index();
                 }
 
                 // if websocket connection open update orders
                 if (e.isWebsocketOpen()) {
                     converge_orders();
-                    Thread.sleep(Settings.LOOP_INTERVAL);
+                    //Thread.sleep(Settings.LOOP_INTERVAL);
                 }
-            } catch (InterruptedException interruptedException) {
-                LOGGER.warning("Algorithm execution interrupted.");
-                cancel_all_orders();
-            }
         }
     }
 }

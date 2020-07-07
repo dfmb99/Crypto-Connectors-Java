@@ -1,8 +1,11 @@
 package bitmex.ws;
 
+import bitmex.data.*;
 import bitmex.rest.Rest;
 import bitmex.rest.RestImp;
-import com.google.gson.*;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.reflect.TypeToken;
 import utils.Auth;
 import utils.BinarySearch;
 import utils.TimeStamp;
@@ -10,8 +13,9 @@ import utils.TimeStamp;
 import javax.websocket.*;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Deque;
-import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -89,17 +93,19 @@ public class WsImp implements Ws {
     private final String url;
     private final String apiKey;
     private final String apiSecret;
-    private String subscriptions;
+    private final String subscriptions;
     private final String symbol;
+
     // order messages from web socket need to be ordered and processed synchronously
-    private OrderAsyncThread orderQueue;
-    // structure to store web socket data in local storage
-    private final Map<String, JsonArray> data;
+    private final OrderAsyncThread orderQueue;
+    // data structure to store ws data
+    private final Map<String, Object> data;
+    // thread that deals with ws heartbeats
     private HeartbeatThread heartbeatThread;
-    // allowed reconnect timestamp
-    private Long reconnectStamp;
-    // copy of data of http order request when wss client is initiated
-    private JsonArray orderBackUp;
+    // minimum timestamp to check latency on instrument update
+    private long minReconnectTimeStamp;
+    //check latency sync lock
+    private final Object latencyLock = "Latency checking lock";
 
     /**
      * BitMex web socket client implementation for one symbol
@@ -112,55 +118,42 @@ public class WsImp implements Ws {
      */
     public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol) {
         this.container = ContainerProvider.getWebSocketContainer();
-        this.rest = rest;
         this.g = new Gson();
-        if (testnet)
-            this.url = Ws.WS_TESTNET;
-        else
-            this.url = Ws.WS_MAINNET;
+        this.rest = rest;
+        this.url = testnet ? WS_TESTNET : WS_MAINNET;
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
         this.userSession = null;
         this.heartbeatThread = null;
         this.data = new ConcurrentHashMap<>();
-        this.reconnectStamp = 0L;
+        this.orderQueue = new OrderAsyncThread(this);
+        this.minReconnectTimeStamp = 0L;
         this.symbol = symbol;
-        /*
-         * With order book data
-         * this.setSubscriptions("\"instrument:"+ symbol +"\",\"orderBookL2:"+ symbol +"\",\"liquidation:"+ symbol +"\"," +
-         *                "\"order:"+ symbol +"\",\"position:"+ symbol +"\",\"execution:"+ symbol +"\",\"tradeBin1m:"+ symbol +"\",\"margin:*\"");
-         */
+        // subscriptions to send to ws server
+        this.subscriptions = "\"instrument:" + symbol + "\",\"liquidation:" + symbol + "\"," +
+                "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\"";
 
-        // No order book data w/ .BVOL7D index updates
-        this.setSubscriptions("\"instrument:" + symbol + "\",\"liquidation:" + symbol + "\"," +
-                "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\",\"instrument:.BVOL7D\"");
+        // creates data structures to store data received by ws
+        List<Liquidation> liquidationData = new ArrayList<>();
+        List<Order> orderData = new ArrayList<>();
+        List<Execution> executionData = new ArrayList<>();
+        List<TradeBin> tradeBinData = new ArrayList<>();
+        liquidationData.add(new Liquidation());
+        orderData.add(new Order());
+        executionData.add(new Execution());
+        tradeBinData.add(new TradeBin());
+
+        // initializes data in memory
+        this.data.put(INSTRUMENT, new Instrument());
+        this.data.put(LIQUIDATION, liquidationData);
+        this.data.put(ORDER, orderData);
+        this.data.put(POSITION, new Position());
+        this.data.put(EXECUTION, executionData);
+        this.data.put(TRADE_BIN, tradeBinData);
+        this.data.put(MARGIN, new UserMargin());
+
         this.connect();
         this.waitForData();
-    }
-
-    /**
-     * Sets subscriptions to be sent to the ws server
-     *
-     * @param sub - subscriptions as String
-     */
-    private void setSubscriptions(String sub) {
-        this.subscriptions = sub;
-        String[] split = sub.split(",");
-        for (String str : split) {
-            String[] strArr = str.split(":");
-            this.data.put(strArr[0].substring(1), new JsonArray());
-        }
-
-        if (this.data.containsKey("instrument"))
-            this.data.get("instrument").add(new JsonObject());
-        if (this.data.containsKey("margin"))
-            this.data.get("margin").add(new JsonObject());
-        if (this.data.containsKey("position"))
-            this.data.get("position").add(new JsonObject());
-        if (this.data.containsKey("order"))
-            this.orderQueue = new OrderAsyncThread(this);
-        if (this.data.containsKey("tradeBin1m") && this.rest != null)
-            this.data.put("tradeBin1m", this.get_rest_last_1mCandles());
     }
 
     /**
@@ -172,7 +165,7 @@ public class WsImp implements Ws {
         } catch (Exception e) {
             LOGGER.warning("Failed to connect to web socket server.");
             try {
-                Thread.sleep(Ws.RETRY_PERIOD);
+                Thread.sleep(RETRY_PERIOD);
             } catch (InterruptedException interruptedException) {
                 // Do nothing
             }
@@ -190,15 +183,14 @@ public class WsImp implements Ws {
         LOGGER.info(String.format("Connected to: %s", this.url));
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
-        // gets open orders for this symbol and updates memory
-        JsonArray restOrds = this.get_rest_orders();
-        JsonArray restOrdsReverse = new JsonArray();
-        orderBackUp = new JsonArray();
-        for (int i = restOrds.size() - 1; i >= 0; i--) {
-            restOrdsReverse.add(restOrds.get(i));
-            orderBackUp.add(restOrds.get(i));
-        }
-        this.data.put("order", restOrdsReverse);
+
+        // gets orders for this symbol, trough http request
+        Order[] restOrders = this.get_rest_orders();
+        List<Order> restOrdersReverse = new ArrayList<>();
+        for (int i = restOrders.length - 1; i >= 0; i--)
+            restOrdersReverse.add(restOrders[i]);
+        this.data.put(ORDER, restOrdersReverse);
+
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
         sendMessage(String.format("{\"op\": \"authKeyExpires\", \"args\": [\"%s\", %d, \"%s\"]}", apiKey, expires, signature));
@@ -263,12 +255,14 @@ public class WsImp implements Ws {
         if (!isSessionOpen())
             return;
         this.heartbeatThread = new HeartbeatThread(this);
+
         //if it was an heartbeat message
         if (message.equalsIgnoreCase("pong"))
             return;
+
         JsonObject obj = g.fromJson(message, JsonObject.class);
         if (obj.has("subscribe")) {
-            LOGGER.fine("Subscribed successfully to " + obj.get("subscribe"));
+            LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
             LOGGER.warning(obj.get("error").getAsString());
             // Rate limited
@@ -276,41 +270,32 @@ public class WsImp implements Ws {
                 long waitTime = obj.get("meta").getAsJsonObject().get("retryAfter").getAsLong();
                 LOGGER.warning(String.format("Rate-limited, retrying on %d seconds.", waitTime));
                 Thread.sleep(waitTime * 1000);
-            } else
-                System.exit(1);
+            }
         } else if (obj.has("table")) {
             String table = obj.get("table").getAsString();
             switch (table) {
                 case "instrument":
-                    LOGGER.fine("Received instrument update.");
                     new Thread(() -> update_intrument(obj)).start();
                     break;
                 case "orderBookL2":
-                    LOGGER.finest("Received orderbookL2 update.");
                     new Thread(() -> update_orderBookL2(obj)).start();
                     break;
                 case "liquidation":
-                    LOGGER.finest("Received liquidation update.");
                     new Thread(() -> update_liquidation(obj)).start();
                     break;
                 case "margin":
-                    LOGGER.finest("Received margin update.");
                     new Thread(() -> update_margin(obj)).start();
                     break;
                 case "position":
-                    LOGGER.finest("Received position update.");
                     new Thread(() -> update_position(obj)).start();
                     break;
                 case "tradeBin1m":
-                    LOGGER.finest("Received tradeBin1m update.");
                     new Thread(() -> update_tradeBin1m(obj)).start();
                     break;
                 case "execution":
-                    LOGGER.finest("Received execution update.");
                     new Thread(() -> update_execution(obj)).start();
                     break;
                 case "order":
-                    LOGGER.finest("Received order update.");
                     // adds message to the queue that leads with order messages;
                     orderQueue.add(obj);
                     break;
@@ -324,51 +309,33 @@ public class WsImp implements Ws {
      * @param obj - obj received from web socket
      */
     private void update_intrument(JsonObject obj) {
-        // action of instrument update
         String action = obj.get("action").getAsString();
-        // data of instrument udpate
-        JsonArray dataArr = obj.get("data").getAsJsonArray();
-        // symbol of instrument update
-        String symbol = dataArr.get(0).getAsJsonObject().get("symbol").getAsString();
+        Instrument[] instrumentNewData = g.fromJson(obj.get("data"), Instrument[].class);
 
-        // update of index instrument (eg: .BVOL24H, .BVOL7D)
-        if (symbol.startsWith(".") && (action.equals("partial") || action.equals("update"))) {
-            JsonArray lastPrice = new JsonArray();
-            JsonObject dataObj = dataArr.get(0).getAsJsonObject();
-            if (dataObj.has("lastPrice")) {
-                lastPrice.add(dataObj.get("lastPrice").getAsFloat());
-                this.data.put(symbol, lastPrice);
-            }
-            return;
-        }
-
-        // else its a tradable symbol
         if (action.equals("partial")) {
-            this.data.put("instrument", dataArr);
+            this.data.put(INSTRUMENT, instrumentNewData[0]);
         } else if (action.equals("update")) {
-            JsonObject instrumentData = this.data.get("instrument").get(0).getAsJsonObject();
-            JsonObject data = dataArr.get(0).getAsJsonObject();
-            if (data.has("timestamp"))
-                check_latency(data.get("timestamp").getAsString());
-            for (String key : data.keySet()) {
-                instrumentData.addProperty(key, data.get(key).getAsString());
-            }
+            Instrument instrumentData = (Instrument) this.data.get(INSTRUMENT);
+            String timestamp = instrumentNewData[0].getTimestamp();
+            if (timestamp != null)
+                check_latency(timestamp);
+            instrumentData.update(instrumentNewData[0]);
+            this.data.put(INSTRUMENT, instrumentData);
         }
     }
 
     /**
-     * Checks latency on a websocket update
+     * Checks latency on a websocket instrument update
      *
      * @param timestamp - timestamp of last update
      */
     private void check_latency(String timestamp) {
         long updateTime = TimeStamp.getTimestamp(timestamp);
         long latency = System.currentTimeMillis() - updateTime;
-        synchronized (reconnectStamp) {
-            if (latency > Ws.MAX_LATENCY && System.currentTimeMillis() > reconnectStamp) {
-                reconnectStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
-                LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), reconnectStamp));
-                // closes current websocket connection
+        synchronized (latencyLock) {
+            if (latency > MAX_LATENCY && System.currentTimeMillis() > minReconnectTimeStamp) {
+                minReconnectTimeStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
+                LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), minReconnectTimeStamp));
                 this.closeSession();
             }
         }
@@ -380,33 +347,35 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     private void update_orderBookL2(JsonObject obj) {
-        JsonArray data = obj.get("data").getAsJsonArray();
-        if (obj.get("action").getAsString().equals("partial")) {
-            this.data.put("orderBookL2", data);
+        String action = obj.get("action").getAsString();
+        OrderBookL2[] data = g.fromJson(obj.get("data"), OrderBookL2[].class);
+        if (action.equals("partial")) {
+            this.data.put(ORDER_BOOK_L2, data);
         } else {
-            JsonArray orderbookData = this.data.get("orderBookL2");
+            OrderBookL2[] orderbookData = (OrderBookL2[]) this.data.get(ORDER_BOOK_L2);
             if (orderbookData == null)
                 return;
             //checks every row on data array
-            for (JsonElement elem : data) {
-                long id = elem.getAsJsonObject().get("id").getAsLong();
-                long[] ids = new long[orderbookData.size()];
-                for (int i = 0; i < orderbookData.size(); i++)
-                    ids[i] = orderbookData.get(i).getAsJsonObject().get("id").getAsLong();
+            for (OrderBookL2 elem : data) {
+                long id = elem.getId();
+                long[] ids = new long[orderbookData.length];
+                for (int i = 0; i < orderbookData.length; i++)
+                    ids[i] = orderbookData[i].getId();
 
                 int index = BinarySearch.binarySearchL(ids, 0, ids.length - 1, id);
                 if (index == -1) {
-                    orderbookData = insert(BinarySearch.getIndexInSortedArray(ids, ids.length - 1, id), elem,
+                    orderbookData = (OrderBookL2[]) insert(BinarySearch.getIndexInSortedArray(ids, ids.length - 1, id), elem,
                             orderbookData);
                 } else {
-                    JsonObject bookline = orderbookData.get(index).getAsJsonObject();
-                    if (obj.get("action").getAsString().equals("update"))
-                        bookline.addProperty("size", elem.getAsJsonObject().get("size").getAsLong());
-                    else if (obj.get("action").getAsString().equals("delete"))
-                        bookline.addProperty("size", 0L);
-                    bookline.addProperty("side", elem.getAsJsonObject().get("side").getAsString());
+                    OrderBookL2 bookline = orderbookData[index];
+                    if (action.equals("update"))
+                        bookline.setSize(elem.getSize());
+                    else if (action.equals("delete"))
+                        bookline.setSize(0L);
+                    bookline.setSide(elem.getSide());
                 }
             }
+            this.data.put(ORDER_BOOK_L2, orderbookData);
         }
     }
 
@@ -417,32 +386,32 @@ public class WsImp implements Ws {
      */
     private void update_liquidation(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        JsonArray liquidationData = this.data.get("liquidation");
-        JsonArray data = obj.get("data").getAsJsonArray();
+        @SuppressWarnings("unchecked")
+        List<Liquidation> liquidationData = (List<Liquidation>) this.data.get(LIQUIDATION);
+        List<Liquidation> data = g.fromJson(obj.get("data"), new TypeToken<List<Liquidation>>() {
+        }.getType());
+
         if (action.equals("update") || action.equals("insert")) {
-            for (JsonElement elem : data) {
-                if (liquidationData.size() == Ws.LIQ_MAX_LEN)
+            for (Liquidation elem : data) {
+                if (liquidationData.size() == LIQ_MAX_LEN)
                     liquidationData.remove(0);
                 liquidationData.add(elem);
             }
+            this.data.put(LIQUIDATION, liquidationData.toArray(new Liquidation[0]));
         } else if (action.equals("delete")) {
-            Iterator<JsonElement> it;
-            for (JsonElement elem : data) {
-                // orderID in object received element
-                String orderIDRec = elem.getAsJsonObject().get("orderID").getAsString();
-                // iterates over liquidationData stored in memory
-                it = this.data.get("liquidation").iterator();
-                while (it.hasNext()) {
-                    JsonElement elemOrig = it.next();
-                    // orderId in liquidationData element
-                    String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
-                    // if same orderID
+            for (Liquidation elem : data) {
+                // orderID of object received from ws
+                String orderIDRec = elem.getOrderID();
+                for (Liquidation memData : liquidationData) {
+                    // orderID of object of data in memory
+                    String orderIDOrig = memData.getOrderID();
                     if (orderIDRec.equals(orderIDOrig)) {
-                        liquidationData.remove(elemOrig);
+                        liquidationData.remove(memData);
                         break;
                     }
                 }
             }
+            this.data.put(LIQUIDATION, liquidationData.toArray(new Liquidation[0]));
         }
     }
 
@@ -453,13 +422,12 @@ public class WsImp implements Ws {
      */
     private void update_margin(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("update") || action.equals("partial")) {
-            JsonObject marginData = this.data.get("margin").get(0).getAsJsonObject();
-            JsonObject data = obj.get("data").getAsJsonArray().get(0).getAsJsonObject();
-            for (String key : data.keySet()) {
-                if (!data.get(key).isJsonNull())
-                    marginData.addProperty(key, data.get(key).getAsString());
-            }
+        UserMargin[] dataRec = g.fromJson(obj.get("data"), UserMargin[].class);
+
+        if (dataRec.length > 0 && (action.equals("update") || action.equals("partial"))) {
+            UserMargin marginData = (UserMargin) this.data.get(MARGIN);
+            marginData.update(dataRec[0]);
+            this.data.put(MARGIN, marginData);
         }
     }
 
@@ -470,14 +438,12 @@ public class WsImp implements Ws {
      */
     private void update_position(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        JsonArray dataArr = obj.get("data").getAsJsonArray();
-        if (dataArr.size() > 0 && (action.equals("update") || action.equals("partial"))) {
-            JsonObject positionData = this.data.get("position").get(0).getAsJsonObject();
-            JsonObject data = dataArr.get(0).getAsJsonObject();
-            for (String key : data.keySet()) {
-                if (!data.get(key).isJsonNull())
-                    positionData.addProperty(key, data.get(key).getAsString());
-            }
+        Position[] positionRec = g.fromJson(obj.get("data"), Position[].class);
+
+        if (positionRec.length > 0 && (action.equals("update") || action.equals("partial"))) {
+            Position positionData = (Position) this.data.get(POSITION);
+            positionData.update(positionRec[0]);
+            this.data.put(POSITION, positionData);
         }
     }
 
@@ -488,14 +454,18 @@ public class WsImp implements Ws {
      */
     private void update_tradeBin1m(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("insert")) {
-            JsonArray tradeBin1mData = this.data.get("tradeBin1m");
-            JsonArray data = obj.get("data").getAsJsonArray();
-            for (JsonElement elem : data) {
-                if (tradeBin1mData.size() == Ws.TRADE_BIN_MAX_LEN)
-                    tradeBin1mData.remove(Ws.TRADE_BIN_MAX_LEN - 1);
-                this.data.put("tradeBin1m", insert(0, elem, tradeBin1mData));
+        List<TradeBin> tradeBinRec = g.fromJson(obj.get("data"), new TypeToken<List<TradeBin>>() {
+        }.getType());
+
+        if (tradeBinRec.size() > 0 && action.equals("insert")) {
+            @SuppressWarnings("unchecked")
+            List<TradeBin> tradeBinData = (List<TradeBin>) this.data.get(TRADE_BIN);
+            for (TradeBin elem : tradeBinRec) {
+                if (tradeBinData.size() == TRADE_BIN_MAX_LEN)
+                    tradeBinData.remove(0);
+                tradeBinData.add(elem);
             }
+            this.data.put(TRADE_BIN, tradeBinData);
         }
     }
 
@@ -506,14 +476,18 @@ public class WsImp implements Ws {
      */
     private void update_execution(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        if (action.equals("insert") || action.equals("partial")) {
-            JsonArray executionData = this.data.get("execution");
-            JsonArray data = obj.get("data").getAsJsonArray();
-            for (JsonElement elem : data) {
-                if (executionData.size() == Ws.EXEC_MAX_LEN)
+        List<Execution> executionRec = g.fromJson(obj.get("data"), new TypeToken<List<Execution>>() {
+        }.getType());
+
+        if (executionRec.size() > 0 && action.equals("insert") || action.equals("partial")) {
+            @SuppressWarnings("unchecked")
+            List<Execution> executionData = (List<Execution>) this.data.get(EXECUTION);
+            for (Execution elem : executionRec) {
+                if (executionData.size() == EXEC_MAX_LEN)
                     executionData.remove(0);
                 executionData.add(elem);
             }
+            this.data.put(EXECUTION, executionData);
         }
     }
 
@@ -523,47 +497,39 @@ public class WsImp implements Ws {
      * @param obj - obj received from ws
      */
     protected void update_order(JsonObject obj) {
-        JsonArray orderData = this.data.get("order");
-        JsonArray data = obj.get("data").getAsJsonArray();
-        if (obj.get("action").getAsString().equals("insert")) {
-            for (JsonElement elem : data) {
-                if (orderData.size() == Ws.ORDER_MAX_LEN)
+        String action = obj.get("action").getAsString();
+        @SuppressWarnings("unchecked")
+        List<Order> orderData = (List<Order>) this.data.get(ORDER);
+        List<Order> orderRec = g.fromJson(obj.get("data"), new TypeToken<List<Order>>() {
+        }.getType());
+
+        if (action.equals("insert")) {
+            for (Order elem : orderRec) {
+                if (orderData.size() == ORDER_MAX_LEN)
                     orderData.remove(0);
                 orderData.add(elem);
             }
-        } else if (obj.get("action").getAsString().equals("update")) {
-            Iterator<JsonElement> it;
+        } else if (action.equals("update")) {
+            // if order match found in memory -> true, false otherwise
             boolean orderMatchFound;
-            // iterates over object received
-            for (JsonElement elemRec : data) {
+            // iterates over data received
+            for (Order elemRec : orderRec) {
                 orderMatchFound = false;
-                JsonObject objRec = elemRec.getAsJsonObject();
-                // orderID in object received element
-                String orderIDRec = objRec.get("orderID").getAsString();
                 // iterates over orderData stored in memory/
-                it = this.data.get("order").iterator();
-                while (it.hasNext()) {
-                    JsonElement elemOrig = it.next();
-                    // orderId in orderData element
-                    String orderIDOrig = elemOrig.getAsJsonObject().get("orderID").getAsString();
-                    // if same orderID
-                    if (orderIDRec.equals(orderIDOrig)) {
+                for (Order elemData : orderData) {
+                    // if same order (same orderID)
+                    if (elemData.equals(elemRec)) {
                         orderMatchFound = true;
-                        // remove old data object
-                        orderData.remove(elemOrig);
-                        // iterate data on object received and updates local memory
-                        for (String key : objRec.keySet()) {
-                            if (!objRec.get(key).isJsonNull())
-                                elemOrig.getAsJsonObject().addProperty(key, objRec.get(key).getAsString());
-                        }
-                        if (orderData.size() == Ws.ORDER_MAX_LEN)
-                            orderData.remove(0);
-                        orderData.add(elemOrig);
+                        // remove old data object, updates data element and adds updated one to memory
+                        orderData.remove(elemData);
+                        elemData.update(elemRec);
+                        orderData.add(elemData);
                         break;
                     }
                 }
+                // if there was not found an order with the same orderID on memory we add the object received
                 if (!orderMatchFound) {
-                    if (orderData.size() == Ws.ORDER_MAX_LEN)
+                    if (orderData.size() == ORDER_MAX_LEN)
                         orderData.remove(0);
                     orderData.add(elemRec);
                 }
@@ -573,92 +539,68 @@ public class WsImp implements Ws {
 
     @Override
     public long getL2Size(float price) {
-        if (this.data.get("orderBookL2") == null)
+        OrderBookL2[] orderbookData = (OrderBookL2[]) this.data.get(ORDER_BOOK_L2);
+        if (orderbookData == null)
             return -1L;
-        JsonArray orderbookData = this.data.get("orderBookL2");
-        float[] ids = new float[orderbookData.size()];
-        for (int i = 0; i < orderbookData.size(); i++)
-            ids[i] = orderbookData.get(i).getAsJsonObject().get("price").getAsFloat();
+        float[] ids = new float[orderbookData.length];
+        for (int i = 0; i < orderbookData.length; i++)
+            ids[i] = orderbookData[i].getPrice();
 
         int index = BinarySearch.binarySearchF(ids, 0, ids.length - 1, price);
-        return orderbookData.get(index).getAsJsonObject().get("size").getAsLong();
+        return orderbookData[index].getSize();
     }
 
     @Override
-    public JsonArray get_open_liquidation() {
-        return this.data.get("liquidations");
+    public Liquidation[] get_open_liquidation() {
+        return (Liquidation[]) this.data.get(LIQUIDATION);
     }
 
     @Override
-    public JsonArray get_instrument() {
-        return this.data.get("instrument");
+    public Instrument get_instrument() {
+        return (Instrument) this.data.get(INSTRUMENT);
     }
 
     @Override
-    public JsonArray get_trabeBin1m() {
-        return this.data.get("tradeBin1m");
+    public TradeBin[] get_trabeBin1m() {
+        return (TradeBin[]) this.data.get(TRADE_BIN);
     }
 
     @Override
-    public JsonArray get_orderBookL2() {
-        return this.data.get("orderBookL2");
+    public OrderBookL2[] get_orderBookL2() {
+        return (OrderBookL2[]) this.data.get(ORDER_BOOK_L2);
     }
 
     @Override
-    public JsonArray get_margin() {
-        return this.data.get("margin");
+    public UserMargin get_margin() {
+        return (UserMargin) this.data.get(MARGIN);
     }
 
     @Override
-    public JsonArray get_execution() {
-        return this.data.get("execution");
+    public Execution[] get_execution() {
+        return (Execution[]) this.data.get(EXECUTION);
     }
 
     @Override
-    public JsonArray get_position() {
-        return this.data.get("position");
+    public Position get_position() {
+        return (Position) this.data.get(POSITION);
     }
 
     @Override
-    public JsonArray get_openOrders(String orderIDPrefix) {
-        JsonArray ret = new JsonArray();
-        JsonArray cpy = new JsonArray();
-        cpy.addAll(this.data.get("order"));
-        for (JsonElement elem : cpy) {
-            JsonElement ordStatus = elem.getAsJsonObject().get("ordStatus");
-            if (elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && (ordStatus.getAsString().equals("New") || ordStatus.getAsString().equals("PartiallyFilled")))
-                ret.add(elem);
-        }
-        return ret;
+    public Order[] get_openOrders(String orderIDPrefix) {
+        @SuppressWarnings("unchecked")
+        List<Order> allOrders = (List<Order>) this.data.get(ORDER);
+        return allOrders.stream()
+                .filter(o -> o.getClOrdID().startsWith(orderIDPrefix) && (o.getOrdStatus().equals("New") || o.getOrdStatus().equals("PartiallyFilled")))
+                .toArray(Order[]::new);
     }
 
     @Override
-    public JsonArray get_filledOrders(String orderIDPrefix) {
-        JsonArray ret = new JsonArray();
-        JsonArray cpy = new JsonArray();
-        cpy.addAll(this.data.get("order"));
-        for (JsonElement elem : cpy) {
-            JsonElement ordStatus = elem.getAsJsonObject().get("ordStatus");
-            if (elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(orderIDPrefix) && ordStatus.getAsString().equals("Filled"))
-                ret.add(elem);
-        }
-        return ret;
-    }
-
-    @Override
-    public float get_price_last_order_filled(String orderIDPrefix) {
-        JsonArray fills = get_filledOrders(orderIDPrefix);
-        if (fills.size() > 0 && !orderBackUp.equals(this.data.get("order")))
-            return fills.get(fills.size() - 1).getAsJsonObject().get("price").getAsFloat();
-        return -1f;
-    }
-
-    @Override
-    public float get_bvol7d() {
-        JsonArray bvol7d = this.data.get(".BVOL7D");
-        if(!bvol7d.isJsonNull() && bvol7d.size() > 0)
-            return bvol7d.get(0).getAsFloat();
-        return -1f;
+    public Order[] get_filledOrders(String orderIDPrefix) {
+        @SuppressWarnings("unchecked")
+        List<Order> allOrders = (List<Order>) this.data.get(ORDER);
+        return allOrders.stream()
+                .filter(o -> o.getClOrdID().startsWith(orderIDPrefix) && o.getOrdStatus().equals("Filled"))
+                .toArray(Order[]::new);
     }
 
     /**
@@ -666,10 +608,10 @@ public class WsImp implements Ws {
      *
      * @return Returns open orders for current symbol
      */
-    private JsonArray get_rest_orders() {
+    private Order[] get_rest_orders() {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
-        params.addProperty("count", Ws.ORDER_MAX_LEN);
+        params.addProperty("count", ORDER_MAX_LEN);
         params.addProperty("reverse", true);
         return this.rest.get_order(params);
     }
@@ -679,11 +621,11 @@ public class WsImp implements Ws {
      *
      * @return Returns last candles data for current symbol
      */
-    private JsonArray get_rest_last_1mCandles() {
+    private TradeBin[] get_rest_last_1mCandles() {
         JsonObject params = new JsonObject();
         params.addProperty("binSize", "1m");
         params.addProperty("symbol", this.symbol);
-        params.addProperty("count", Ws.TRADE_BIN_MAX_LEN);
+        params.addProperty("count", TRADE_BIN_MAX_LEN);
         params.addProperty("reverse", true);
         return this.rest.get_trade_bucketed(params);
     }
@@ -692,7 +634,8 @@ public class WsImp implements Ws {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() {
-        while (this.data.get("instrument").get(0).getAsJsonObject().get("lastPrice") == null) {
+        Instrument instrumentData = (Instrument) this.data.get(INSTRUMENT);
+        while (instrumentData.getMarkPrice() == null) {
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
@@ -702,23 +645,20 @@ public class WsImp implements Ws {
     }
 
     /**
-     * Adds a JsonElement to a JSonArray in a given index
+     * Adds an element to a array in a given index
      *
-     * @param index        - index on JsonArray to add element
-     * @param val          - element to be added
-     * @param currentArray - JsonArray to be processed
-     * @return newArray - new JsonArray
+     * @param index - index on array to add element
+     * @param val   - element to be added
+     * @param arr   - array to be processed
+     * @return newArray - new array
      */
-    private JsonArray insert(int index, JsonElement val, JsonArray currentArray) {
-        JsonArray newArray = new JsonArray();
-        for (int i = 0; i < index; i++) {
-            newArray.add(currentArray.get(i));
-        }
-        newArray.add(val);
+    public static Object insert(int index, Object val, Object[] arr) {
+        Object[] newArray = new Object[arr.length + 1];
+        if (index >= 0) System.arraycopy(arr, 0, newArray, 0, index);
+        newArray[index] = val;
 
-        for (int i = index; i < currentArray.size(); i++) {
-            newArray.add(currentArray.get(i));
-        }
+        if (newArray.length - index + 1 >= 0)
+            System.arraycopy(arr, index + 1 - 1, newArray, index + 1, newArray.length - index + 1);
         return newArray;
     }
 

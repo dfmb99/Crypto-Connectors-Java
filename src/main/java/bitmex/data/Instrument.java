@@ -1,14 +1,23 @@
 package bitmex.data;
 
 public class Instrument {
-    private Float fairPrice, midPrice, bidPrice, askPrice;
+    private String timestamp;
+    private Float markPrice, midPrice, bidPrice, askPrice;
 
-    public Float getFairPrice() {
-        return fairPrice;
+    public String getTimestamp() {
+        return timestamp;
     }
 
-    public void setFairPrice(Float fairPrice) {
-        this.fairPrice = fairPrice;
+    public void setTimestamp(String timestamp) {
+        this.timestamp = timestamp;
+    }
+
+    public Float getMarkPrice() {
+        return markPrice;
+    }
+
+    public void setMarkPrice(Float fairPrice) {
+        this.markPrice = fairPrice;
     }
 
     public Float getMidPrice() {
@@ -33,5 +42,23 @@ public class Instrument {
 
     public void setAskPrice(Float askPrice) {
         this.askPrice = askPrice;
+    }
+
+    /**
+     * Updates current object with other object data
+     *
+     * @param other - updated object
+     */
+    public void update(Instrument other) {
+        if(other.getTimestamp() != null)
+            this.timestamp = other.getTimestamp();
+        if(other.getMarkPrice() != null)
+            this.markPrice = other.getMarkPrice();
+        if(other.getMidPrice() != null)
+            this.midPrice = other.getMidPrice();
+        if(other.getBidPrice() != null)
+            this.bidPrice = other.getBidPrice();
+        if(other.getAskPrice() != null)
+            this.askPrice = other.getAskPrice();
     }
 }

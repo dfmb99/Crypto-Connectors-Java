@@ -19,4 +19,16 @@ public class Position {
     public void setCurrentQty(Long currentQty) {
         this.currentQty = currentQty;
     }
+
+    /**
+     * Updates current object with other object data
+     *
+     * @param other - updated object
+     */
+    public void update(Position other) {
+        if(other.getAvgEntryPrice() != null)
+            this.avgEntryPrice = other.getAvgEntryPrice();
+        if(other.getCurrentQty() != null)
+            this.currentQty = other.getCurrentQty() ;
+    }
 }

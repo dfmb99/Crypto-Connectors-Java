@@ -1,5 +1,6 @@
 package bitmex.rest;
 
+import bitmex.data.*;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -16,14 +17,15 @@ import javax.ws.rs.core.Response;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
 
 public class RestImp implements Rest {
 
     private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
-
 
     private final Gson g;
     private final Client client;
@@ -76,18 +78,12 @@ public class RestImp implements Rest {
                 .header("content-type", "application/json; charset=utf-8")
                 .header("connection", "keep-alive");
 
-        /* Validates data
-         * Original: {"orderID":"[\"88dd843b-80a5-afcc-d8f4-5985f4c0f734\", \"7f4788f4-af46-a8e9-5304-d8df5a1f66d3\"]"}
-         * After validation: {"orderID": ["88dd843b-80a5-afcc-d8f4-5985f4c0f734", "7f4788f4-af46-a8e9-5304-d8df5a1f66d3"]
-         */
-        String validDataStr = data.toString().replace("\"[", "[").replace("]\"", "]").replace("\\", "");
-
         long expires = Auth.generate_expires();
         URI uri = target.getUri();
         String sigData = String.format("%s%s%s%s%s", verb, uri.getPath() == null ? "" : uri.getPath(),
                 uri.getQuery() == null ? "" : "?" + uri.toString().split("\\?")[1], expires, verb.equalsIgnoreCase(
                         "GET") ? "" :
-                        validDataStr);
+                        data.toString());
         String signature = Auth.encode_hmac(apiSecret, sigData);
         httpReq = httpReq
                 .header("api-expires", expires)
@@ -101,11 +97,11 @@ public class RestImp implements Rest {
                 if (verb.equalsIgnoreCase("GET"))
                     r = httpReq.get();
                 else if (verb.equalsIgnoreCase("POST"))
-                    r = httpReq.post(Entity.entity(validDataStr, MediaType.APPLICATION_JSON));
+                    r = httpReq.post(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
                 else if (verb.equalsIgnoreCase("PUT"))
-                    r = httpReq.put(Entity.entity(validDataStr, MediaType.APPLICATION_JSON));
+                    r = httpReq.put(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
                 else if (verb.equalsIgnoreCase("DELETE"))
-                    r = httpReq.build("DELETE", Entity.entity(validDataStr, MediaType.APPLICATION_JSON)).invoke();
+                    r = httpReq.build("DELETE", Entity.entity(data.toString(), MediaType.APPLICATION_JSON)).invoke();
 
                 assert r != null;
                 int status = r.getStatus();
@@ -158,23 +154,25 @@ public class RestImp implements Rest {
      * @param data     - data sent either in url ('GET') or in the body
      * @param response - response as string received by the server
      * @param headers  - headers of http request
+     * @return response of server,  null if error
      */
     private String api_error(int status, String verb, String endpoint, JsonObject data, String response,
                              MultivaluedMap<String, Object> headers) {
-        String errLog;
-        JsonObject errorObj;
-        JsonArray errArr = new JsonArray();
-        JsonElement obj = g.fromJson(response, JsonElement.class);
 
+        // converts error response to json element
+        JsonElement obj = g.fromJson(response, JsonElement.class);
         if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error"))
             return null;
 
-        errorObj = obj.getAsJsonObject().get("error").getAsJsonObject();
-        errLog = String.format("(%d) error on request: %s  Name: %s  Message: %s", status,
+        // gets error element on json
+        JsonObject errorObj = obj.getAsJsonObject().get("error").getAsJsonObject();
+
+        // formats error message
+        String errLog = String.format("(%d) error on request: %s  Name: %s  Message: %s", status,
                 verb + endpoint, errorObj.get("name").toString(),
                 errorObj.get("message").toString());
-        errArr.add(errorObj);
 
+        //Checks response codes
         if (status == 401 || status == 403) {
             // Authentication error, forbidden
             LOGGER.severe(errLog);
@@ -182,23 +180,18 @@ public class RestImp implements Rest {
         } else if (status == 400) {
             //Parameter error
             LOGGER.warning(errLog);
-            sleep(3000); //waits 3000ms
-            // same methods are expecting JsonObject and others expect a JsonArray
-            if (((verb.equals("PUT") || verb.equals("POST")) && endpoint.equals("/order")) || endpoint.equals("/order/cancelAllAfter") || endpoint.equals("/user/margin"))
-                return errorObj.toString();
-            return errArr.toString();
+            sleep(2000); //waits 2000ms
+            return response;
         } else if (status == 404) {
             LOGGER.warning(errLog);
-            sleep(3000); //waits 3000ms until attempting again.
+            sleep(2000); //waits 2000ms until attempting again.
             //Order not found
             if (verb.equalsIgnoreCase("DELETE"))
-                return errArr.toString();
+                return response;
             return api_call(verb, endpoint, data);
         } else if (status == 429) {
             LOGGER.warning(errLog);
-            System.currentTimeMillis();
             long rateLimitReset = Long.parseLong(headers.get("x-ratelimit-reset").get(0).toString());
-            //Seconds to sleep
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
             LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
             sleep(toSleep); //waits until attempting again.
@@ -208,8 +201,8 @@ public class RestImp implements Rest {
             sleep(3000); //waits 3000ms until attempting again.
             return api_call(verb, endpoint, data);
         }
-        LOGGER.warning("Unhandled error. \n " + errLog);
-        return errArr.toString();
+        LOGGER.warning("Unhandled error reponse. \n " + response);
+        return null;
     }
 
     /**
@@ -235,107 +228,132 @@ public class RestImp implements Rest {
     }
 
     @Override
-    public JsonArray get_execution(JsonObject data) {
-        return g.fromJson(api_call("GET", "/execution", data), JsonArray.class);
-    }
-
-    @Override
-    public JsonArray get_execution_tradeHistory(JsonObject data) {
-        return g.fromJson(api_call("GET", "/execution/tradeHistory", data), JsonArray.class);
-    }
-
-    @Override
-    public JsonArray get_instrument(String symbol) {
+    public Instrument get_instrument(String symbol) {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", symbol);
-        return g.fromJson(api_call("GET", "/instrument", params), JsonArray.class);
-    }
-
-    @Override
-    public JsonArray get_instrument_compositeIndex(String compIndex) {
-        JsonObject params = new JsonObject();
-        params.addProperty("symbol", compIndex);
-        params.addProperty("count", 50);
-        params.addProperty("reverse", true);
-        return g.fromJson(api_call("GET", "/instrument/compositeIndex", params), JsonArray.class);
-    }
-
-    @Override
-    public JsonArray get_order(JsonObject data) {
-        JsonArray response = new JsonArray();
-        JsonArray arr = g.fromJson(api_call("GET", "/order", data), JsonArray.class);
-        for (JsonElement elem : arr) {
-            if (elem.getAsJsonObject().has("clOrdID") && elem.getAsJsonObject().get("clOrdID").getAsString().startsWith(this.orderIDPrefix))
-                response.add(elem);
+        try {
+            return g.fromJson(api_call("GET", "/instrument", params), Instrument.class);
+        } catch (Exception e) {
+            return null;
         }
-        return response;
     }
 
     @Override
-    public JsonObject put_order(JsonObject data) {
-        return g.fromJson(api_call("PUT", "/order", data), JsonObject.class);
+    public Order[] get_order(JsonObject data) {
+        try {
+            Order[] response = g.fromJson(api_call("GET", "/order", data), Order[].class);
+
+            // only returns orders that start with the orderIDPrefix
+            List<Order> toRet = new ArrayList<>();
+            for (Order v : response) {
+                if (v.getClOrdID() != null && v.getClOrdID().startsWith(this.orderIDPrefix))
+                    toRet.add(v);
+            }
+
+            return toRet.toArray(new Order[0]);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonObject post_order(JsonObject data) {
-        //Adds cl0rdID property on order
-        data.addProperty("clOrdID", setNewOrderID());
-        return g.fromJson(api_call("POST", "/order", data), JsonObject.class);
+    public Order put_order(JsonObject data) {
+        try {
+            return g.fromJson(api_call("PUT", "/order", data), Order.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray del_order(JsonObject data) {
-        return g.fromJson(api_call("DELETE", "/order", data), JsonArray.class);
+    public Order post_order(JsonObject data) {
+        try {
+            //Adds cl0rdID
+            data.addProperty("clOrdID", setNewOrderID());
+
+            return g.fromJson(api_call("POST", "/order", data), Order.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray del_order_all(JsonObject data) {
-        return g.fromJson(api_call("DELETE", "/order/all", data), JsonArray.class);
+    public Order[] del_order(JsonObject data) {
+        try {
+            return g.fromJson(api_call("DELETE", "/order", data), Order[].class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray put_order_bulk(JsonObject data) {
-        return g.fromJson(api_call("PUT", "/order/bulk", data), JsonArray.class);
+    public Order[] del_order_all(JsonObject data) {
+        try {
+            return g.fromJson(api_call("DELETE", "/order/all", data), Order[].class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray post_order_bulk(JsonObject data) {
-        //Adds cl0rdID property on each order
-        JsonArray orders = data.get("orders").getAsJsonArray();
-        for (JsonElement e : orders)
-            e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());
-        return g.fromJson(api_call("POST", "/order/bulk", data), JsonArray.class);
+    public Order[] put_order_bulk(JsonObject data) {
+        try {
+            return g.fromJson(api_call("PUT", "/order/bulk", data), Order[].class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonObject post_order_cancelAllAfter(JsonObject data) {
-        return g.fromJson(api_call("POST", "/order/cancelAllAfter", data), JsonObject.class);
+    public Order[] post_order_bulk(JsonObject data) {
+        try {
+            //Adds cl0rdID
+            JsonArray orders = data.get("orders").getAsJsonArray();
+            for (JsonElement e : orders)
+                e.getAsJsonObject().addProperty("clOrdID", setNewOrderID());
+
+            return g.fromJson(api_call("POST", "/order/bulk", data), Order[].class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray get_position(JsonObject data) {
-        return g.fromJson(api_call("GET", "/position", data), JsonArray.class);
+    public Order post_order_cancelAllAfter(JsonObject data) {
+        try {
+            return g.fromJson(api_call("POST", "/order/cancelAllAfter", data), Order.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray get_trade_bucketed(JsonObject data) {
-        return g.fromJson(api_call("GET", "/trade/bucketed", data), JsonArray.class);
+    public Position get_position(JsonObject data) {
+        try {
+            return g.fromJson(api_call("GET", "/position", data), Position.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonObject get_user_margin() {
-        //BitMex only allows BTC as margin
-        JsonObject data = g.fromJson("{'currency': 'XBt'}", JsonObject.class);
-        return g.fromJson(api_call("GET", "/user/margin", data), JsonObject.class);
+    public TradeBin[] get_trade_bucketed(JsonObject data) {
+        try {
+            return g.fromJson(api_call("GET", "/trade/bucketed", data), TradeBin[].class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
-    public JsonArray get_user_walletHistory(JsonObject data) {
-        return g.fromJson(api_call("GET", "/user/walletHistory", data), JsonArray.class);
-    }
+    public UserMargin get_user_margin() {
+        try {
+            // XBt only collateral
+            JsonObject data = g.fromJson("{'currency': 'XBt'}", JsonObject.class);
 
-    @Override
-    public JsonArray get_user_quoteFillRatio() {
-        return g.fromJson(api_call("GET", "/user/quoteFillRatio", new JsonObject()), JsonArray.class);
+            return g.fromJson(api_call("GET", "/user/margin", data), UserMargin.class);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
