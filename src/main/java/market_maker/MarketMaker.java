@@ -1,67 +1,54 @@
 package market_maker;
 
+import bitmex.data.Instrument;
+import bitmex.data.Order;
+import bitmex.data.TradeBin;
+import bitmex.data.UserMargin;
 import bitmex.rest.RestImp;
 import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import utils.MathCustom;
-import utils.SpotPricesTracker;
-import utils.TimeStamp;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
 class ExchangeInterface {
+    /*
     // Funding interval of perpetual swaps on miliseconds
     private final static long FUNDING_INTERVAL = 28800000;
     // days per anum
     private final static int DAYS_ANNUM = 365;
     // 1 day converted into milliseconds
     private final static long DAY_MS = 86400000L;
+    */
 
     private final RestImp mexRest;
     private final WsImp mexWs;
     private final String symbol;
     private final String orderIDPrefix;
-    // class that deals with ticker data on other exchanges
-    protected SpotPricesTracker spotPrices;
-    // array that stores exchanges weights that are used as index in our symbol
-    private List<Float> weights;
-    // Underlying symbol of contract
-    private String underlyingSymbol;
-    // if perpetual contract null, otherwise date of expiration
-    private final String expiry;
     // timestamp on where indexes weights are updated
     protected long nextIndexUpdate;
     // tickSize of contract
     private final float tickSize;
 
-    public ExchangeInterface(String symbol) {
+    public ExchangeInterface(String symbol) throws InterruptedException {
         this.symbol = symbol;
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
-        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, symbol);
+        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, symbol, Settings.TRADE_BIN_SIZE);
 
-        // Initial data
-        JsonObject instrument = mexWs.get_instrument().get(0).getAsJsonObject();
-        this.expiry = instrument.get("expiry").isJsonNull() ? null : instrument.get("expiry").getAsString();
-        this.underlyingSymbol = instrument.get("underlyingSymbol").getAsString();
-        this.tickSize = instrument.get("tickSize").getAsFloat();
-        // underlying symbol ( eg. 'XBT=' ) need to convert to ( '.BXBT')
-        this.underlyingSymbol = String.format(".B%s", underlyingSymbol.split("=")[0]);
-        // if we are calculating mark price ourselves
-        if (Settings.MARK_PRICE_CALC) {
-            this.spotPrices = new SpotPricesTracker(symbol);
-            //this.get_instrument_composite_index();
-        }
-
+        // http request to get instrument data
+        Instrument instrument = mexWs.get_instrument();
+        this.tickSize = instrument.getTickSize();
     }
 
     /**
@@ -73,14 +60,6 @@ class ExchangeInterface {
         return this.mexWs.isSessionOpen();
     }
 
-    /*
-     * Gets instrument state
-
-    protected String get_instrument_state() {
-        return this.mexRest.get_instrument(this.symbol).get(0).getAsJsonObject().get("state").getAsString();
-    }
-     */
-
     /**
      * Returns tick size of contract
      *
@@ -90,88 +69,13 @@ class ExchangeInterface {
         return this.tickSize;
     }
 
-    /**
-     * Gets timestamp of contract expiry if not perpetual, null otherwise
-     *
-     * @return timestamp of contract expiry if not perpetual, null otherwise
-     */
-    protected Long get_expiry() {
-        if (this.expiry == null)
-            return null;
-        return TimeStamp.getTimestamp(this.expiry);
-    }
-
-    /**
-     * Get current instrument indixes composition and weights
-
-    protected void get_instrument_composite_index() {
-        this.nextIndexUpdate = TimeStamp.getTimestamp(this.mexRest.get_instrument("XBT:quarterly").get(0).getAsJsonObject().get("expiry").getAsString());
-        // request to know composition of index on the symbol we are quoting
-        JsonArray compIndRes = mexRest.get_instrument_compositeIndex(underlyingSymbol);
-        List<String> exchangeRefs = new ArrayList<>();
-        this.weights = new ArrayList<>();
-        for (JsonElement elem : compIndRes) {
-            JsonObject obj = elem.getAsJsonObject();
-            String reference = obj.get("reference").getAsString();
-            if (reference.equalsIgnoreCase("BMI")) break;
-            float weight = obj.get("weight").getAsFloat();
-            exchangeRefs.add(reference);
-            this.weights.add(weight);
-        }
-
-        spotPrices.addExchanges(exchangeRefs.toArray(new String[0]));
-    }*/
-
-    /**
-     * Returns bid price
-     *
-     * @return bid price
-     */
-    protected float get_bid_price() {
-        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("bidPrice").getAsFloat();
-    }
-
-    /**
-     * Returns ask price
-     *
-     * @return ask price
-     */
-    protected float get_ask_price() {
-        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("askPrice").getAsFloat();
-    }
-
-    /**
-     * Returns mid price
-     *
-     * @return mid price
-     */
-    protected float get_mid_price() {
-        return (get_ask_price() + get_bid_price()) / 2;
-    }
-
-    /**
-     * Returns .bvol7d index last price
-     *
-     * @return .bvol7d index last price
-     */
-    protected float get_bvol7d() {
-        return this.mexWs.get_bvol7d();
-    }
-
-    /**
-     * Gets mark price from BitMex websocket
-     */
-    protected float get_ws_mark_price() {
-        return this.mexWs.get_instrument().get(0).getAsJsonObject().get("markPrice").getAsFloat();
-    }
-
-    /**
+    /*
      * Calculates and returns mark price from spot exchanges data
      *
      * @return mark price
-     */
+     *
     protected float get_mark_price() {
-        /*
+         *
          * (For perpetual swaps)
          * Funding Basis = Funding Rate * (Time Until Funding / Funding Interval)
          * Fair Price    = Index Price * (1 + Funding Basis)
@@ -180,7 +84,7 @@ class ExchangeInterface {
          * % Fair Basis = (Impact Mid Price / Index Price - 1) / (Time To Expiry / 365)
          * Fair Value   = Index Price * % Fair Basis * (Time to Expiry / 365)
          * Fair Price   = Index Price + Fair Value
-         */
+         *
 
         float indexPrice = 0f;
         float[] lastPrices = this.spotPrices.get_last_price();
@@ -200,6 +104,40 @@ class ExchangeInterface {
             float fairValue = indexPrice * fairBasis * (((float) expiryTimestamp - (float) System.currentTimeMillis()) / (float) DAY_MS / (float) DAYS_ANNUM);
             return indexPrice + fairValue;
         }
+    }*/
+
+    /**
+     * Returns bid price
+     *
+     * @return bid price
+     */
+    protected float get_bid_price() {
+        return this.mexWs.get_instrument().getBidPrice();
+    }
+
+    /**
+     * Returns ask price
+     *
+     * @return ask price
+     */
+    protected float get_ask_price() {
+        return this.mexWs.get_instrument().getAskPrice();
+    }
+
+    /**
+     * Returns mid price
+     *
+     * @return mid price
+     */
+    protected float get_mid_price() {
+        return this.mexWs.get_instrument().getMidPrice();
+    }
+
+    /**
+     * Gets mark price from BitMex websocket
+     */
+    protected float get_mark_price() {
+        return this.mexWs.get_instrument().getMarkPrice();
     }
 
     /**
@@ -208,78 +146,86 @@ class ExchangeInterface {
      * @return position size
      */
     protected long get_position() {
-        JsonElement currQty = this.mexWs.get_position().get(0).getAsJsonObject().get("currentQty");
-        if (currQty != null)
-            return currQty.getAsLong();
-        else
-            return 0L;
+        Long currQty = this.mexWs.get_position().getCurrentQty();
+        return Objects.requireNonNullElse(currQty, 0L);
     }
 
     /**
      * Http request to get open orders
      *
-     * @return JsonArray[0] -> open buy orders / JsonArray[1] -> open sell orders
+     * @return List<List < Order>>[0] -> open buy orders / List<List<Order>>[1] -> open sell orders
      */
-    protected JsonArray[] rest_get_open_orders() {
-        JsonArray[] arr = new JsonArray[2];
-        arr[0] = new JsonArray();
-        arr[1] = new JsonArray();
+    protected List<List<Order>> rest_get_open_orders() {
+        List<Order> buyOrd = new ArrayList<>();
+        List<Order> sellOrd = new ArrayList<>();
 
         JsonObject params = new JsonObject();
         params.addProperty("symbol", this.symbol);
         params.addProperty("filter", "{\"ordStatus.isTerminated\":false}");
-        params.addProperty("count", 25);
+        params.addProperty("count", 100);
         params.addProperty("reverse", true);
 
-        /*JsonArray openOrders = this.mexRest.get_order(params);
-        for (JsonElement elem : openOrders) {
-            if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
-                arr[0].add(elem);
+        Order[] openOrders = this.mexRest.get_order(params);
+        for (Order e : openOrders) {
+            if (e.getSide().equals("Buy"))
+                buyOrd.add(e);
             else
-                arr[1].add(elem);
-        }*/
+                sellOrd.add(e);
+        }
 
-        return arr;
+        List<List<Order>> toRet = new ArrayList<>(2);
+        toRet.add(buyOrd);
+        toRet.add(sellOrd);
+
+        return toRet;
     }
 
     /**
-     * Gets open orders as a array of JsonArrays
+     * Gets open orders from websocket
      *
-     * @return JsonArray[0] -> open buy orders / JsonArray[1] -> open sell orders
+     * @return List<List < Order>>[0] -> open buy orders / List<List<Order>>[1] -> open sell orders
      */
-    protected JsonArray[] get_open_orders() {
-        JsonArray[] arr = new JsonArray[2];
-        arr[0] = new JsonArray();
-        arr[1] = new JsonArray();
+    protected List<List<Order>> get_open_orders() {
+        List<Order> buyOrd = new ArrayList<>();
+        List<Order> sellOrd = new ArrayList<>();
 
-        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
-        for (JsonElement elem : openOrders) {
-            if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
-                arr[0].add(elem);
+        Order[] openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        for (Order e : openOrders) {
+            if (e.getSide().equals("Buy"))
+                buyOrd.add(e);
             else
-                arr[1].add(elem);
+                sellOrd.add(e);
         }
-        return arr;
+
+        List<List<Order>> toRet = new ArrayList<>(2);
+        toRet.add(buyOrd);
+        toRet.add(sellOrd);
+
+        return toRet;
     }
 
     /**
-     * Gets filled orders as a array of JsonArrays
+     * Gets filled orders from websocket
      *
-     * @return JsonArray[0] -> filled buy orders / JsonArray[1] -> filled sell orders
+     * @return List<List < Order>>[0] -> filled buy orders / List<List<Order>>[1] -> filled sell orders
      */
-    protected JsonArray[] get_filled_orders() {
-        JsonArray[] arr = new JsonArray[2];
-        arr[0] = new JsonArray();
-        arr[1] = new JsonArray();
+    protected List<List<Order>> get_filled_orders() {
+        List<Order> buyOrd = new ArrayList<>();
+        List<Order> sellOrd = new ArrayList<>();
 
-        JsonArray filledOrders = this.mexWs.get_filledOrders(this.orderIDPrefix);
-        for (JsonElement elem : filledOrders) {
-            if (elem.getAsJsonObject().get("side").getAsString().equals("Buy"))
-                arr[0].add(elem);
+        Order[] filledOrders = this.mexWs.get_filledOrders(this.orderIDPrefix);
+        for (Order e : filledOrders) {
+            if (e.getSide().equals("Buy"))
+                buyOrd.add(e);
             else
-                arr[1].add(elem);
+                sellOrd.add(e);
         }
-        return arr;
+
+        List<List<Order>> toRet = new ArrayList<>(2);
+        toRet.add(buyOrd);
+        toRet.add(sellOrd);
+
+        return toRet;
     }
 
     /**
@@ -289,9 +235,9 @@ class ExchangeInterface {
      * @return true if buy order w/ orderID is filled, false otherwise
      */
     protected boolean is_buy_order_filled(String orderID) {
-        JsonArray[] filledOrders = get_filled_orders();
-        for (JsonElement elem : filledOrders[0]) {
-            if (elem.getAsJsonObject().get("orderID").getAsString().equals(orderID))
+        List<List<Order>> filledOrders = get_filled_orders();
+        for (Order elem : filledOrders.get(0)) {
+            if (elem.getOrderID().equals(orderID))
                 return true;
         }
         return false;
@@ -304,37 +250,28 @@ class ExchangeInterface {
      * @return true if sell order w/ orderID is filled, false otherwise
      */
     protected boolean is_sell_order_filled(String orderID) {
-        JsonArray[] filledOrders = get_filled_orders();
-        for (JsonElement elem : filledOrders[1]) {
-            if (elem.getAsJsonObject().get("orderID").getAsString().equals(orderID))
+        List<List<Order>> filledOrders = get_filled_orders();
+        for (Order elem : filledOrders.get(1)) {
+            if (elem.getOrderID().equals(orderID))
                 return true;
         }
         return false;
     }
 
     /**
-     * Cancels all open orders on this contract
+     * Cancels all open orders made by the algorithm
      */
     protected void cancel_all_orders() {
-        JsonObject params = new JsonObject();
-        JsonArray openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
-        String[] toCancel = new String[openOrders.size()];
+        Order[] openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
+        if (openOrders.length > 0) {
+            String[] toCancel = new String[openOrders.length];
+            Arrays.fill(toCancel, openOrders[0].getOrderID());
 
-        for (int i = 0; i < openOrders.size(); i++)
-            toCancel[i] = openOrders.get(i).getAsJsonObject().get("orderID").toString();
+            JsonObject params = new JsonObject();
+            params.addProperty("orderID", Arrays.toString(toCancel));
 
-        params.addProperty("orderID", Arrays.toString(toCancel));
-        if (toCancel.length > 0)
             this.mexRest.del_order(params);
-    }
-
-    /**
-     * Cancel orders passed on params
-     *
-     * @param params - orders IDs to be canceled
-     */
-    protected void cancel_orders(JsonObject params) {
-        this.mexRest.del_order(params);
+        }
     }
 
     /**
@@ -343,90 +280,50 @@ class ExchangeInterface {
      * @return margin used
      */
     protected float get_margin_used() {
-        JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
-        return 1f - (margin.get("availableMargin").getAsFloat() / margin.get("marginBalance").getAsFloat());
+        UserMargin margin = this.mexWs.get_margin();
+        return 1f - (margin.getAvailableMargin() / margin.getMarginBalance());
     }
 
     /**
-     * Get margin balance on account
+     * Get margin balance in XBT
      *
-     * @return margin balance
+     * @return margin balance in XBT
      */
     protected float get_margin_balance() {
-        JsonObject margin = this.mexWs.get_margin().get(0).getAsJsonObject();
-        return margin.get("marginBalance").getAsFloat() * (float) Math.pow(10, -8);
+        return this.mexWs.get_margin().getMarginBalance() * (float) Math.pow(10, -8);
     }
 
     /**
-     * Returns price of an order
+     * Returns top of the book orders (highest bid and lowest ask)
      *
-     * @param order - JsonObject
-     * @return price
+     * @return Order[0] -> highest open buy order  / Order[1] -> lowest open sell order
      */
-    protected float get_order_price(JsonObject order) {
-        return order.get("price").getAsFloat();
-    }
+    protected Order[] get_topBook_orders() {
+        List<List<Order>> orders = this.get_open_orders();
+        Order highestBuy = null, lowestSell = null;
 
-    /*
-     * Returns lowest open buy order orderID
-     *
-     * @param order - JsonObject
-     * @return orderID
-    protected String get_orderID(JsonObject order) {
-        return order.get("orderID").getAsString();
-    }*/
-
-    /**
-     * Returns JsonObject[] w/ top of the book orders (bid and ask order more more closer to midPrice)
-     *
-     * @return JsonObject[0] -> highest open buy order  / JsonObject[1] -> lowest open sell order
-     */
-    protected JsonObject[] get_topBook_orders() {
-        JsonArray[] orders = this.get_open_orders();
-        JsonObject highestBuy = new JsonObject();
-        JsonObject lowestSell = new JsonObject();
-
-        for (JsonElement currOrd : orders[0]) {
-            if (highestBuy.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() > highestBuy.get("price").getAsFloat())
-                highestBuy = currOrd.getAsJsonObject();
+        for (Order bid : orders.get(0)) {
+            if (highestBuy == null || bid.getPrice() > highestBuy.getPrice())
+                highestBuy = bid;
         }
-        for (JsonElement currOrd : orders[1]) {
-            if (lowestSell.keySet().size() < 1 || currOrd.getAsJsonObject().get("price").getAsFloat() < lowestSell.get("price").getAsFloat())
-                lowestSell = currOrd.getAsJsonObject();
+        for (Order ask : orders.get(1)) {
+            if (lowestSell == null || ask.getPrice() < lowestSell.getPrice())
+                lowestSell = ask;
         }
 
-        return new JsonObject[]{highestBuy, lowestSell};
+        return new Order[]{highestBuy, lowestSell};
     }
-
-    /*
-     * Places an order
-     *
-     * @param order - order to be placed
-     * @return JsonObject - response of request
-    protected JsonObject place_order(JsonObject order) {
-        return this.mexRest.post_order(order);
-    }*/
 
     /**
      * Places multiple orders as bulk
      *
      * @param orders - orders to be placed
-     * @return JsonObject - response of request
+     * @return Order array - response of request
      */
-    protected JsonArray place_order_bulk(JsonArray orders) {
+    protected Order[] place_order_bulk(JsonArray orders) {
         JsonObject params = new JsonObject();
         params.add("orders", orders);
-        //return this.mexRest.post_order_bulk(params);
-        return null;
-    }
-
-    /**
-     * Amends an order
-     *
-     * @param order - order to be amended
-     */
-    protected void amend_order(JsonObject order) {
-        this.mexRest.put_order(order);
+        return this.mexRest.post_order_bulk(params);
     }
 
     /**
@@ -441,11 +338,11 @@ class ExchangeInterface {
     }
 
     /**
-     * Returns trade bucketed data 1minute
+     * Returns trade 1m bucketed data from websocket
      *
-     * @return JSONArray
+     * @return TradeBin array
      */
-    protected JsonArray get_tradeBin1m() {
+    protected TradeBin[] get_tradeBin1m() {
         return this.mexWs.get_trabeBin1m();
     }
 }
@@ -562,7 +459,7 @@ class MarketMakerManager {
         float midPrice = e.get_mid_price();
 
         float currVolIndex = e.get_bvol7d() / 100f;
-        currVolIndex = currVolIndex * (float) Math.sqrt(1f / (10080f / Settings.SPREAD_INDEX));
+        currVolIndex = currVolIndex * (float) Math.sqrt(1f / (10080f / Settings.QUOTE_SPREAD));
         float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
 
         return Math.max(currVolIndex, minimumSpread);
@@ -578,7 +475,7 @@ class MarketMakerManager {
         long currPos = e.get_position();
         float skew = 0;
 
-        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * spreadIndex * Settings.SPREAD_INDEX_FACTOR;
+        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR;
         if (currPos > 0)
             skew = c * -1f;
         else if (currPos < 0)
@@ -848,29 +745,29 @@ class MarketMakerManager {
     private void run_loop() {
         while (true) {
 
-                Long expiry = e.get_expiry();
-                if (expiry != null && System.currentTimeMillis() > expiry) {
-                    LOGGER.info("Contract expired. Ending algorithm execution.");
-                    System.exit(0);
-                }
-                //sanity check
-                long now = System.currentTimeMillis();
-                if (now > sanityCheckStamp) {
-                    sanityCheckStamp = now + Settings.SANITY_CHECK_INTERVAL;
-                    sanity_check();
-                }
+            Long expiry = e.get_expiry();
+            if (expiry != null && System.currentTimeMillis() > expiry) {
+                LOGGER.info("Contract expired. Ending algorithm execution.");
+                System.exit(0);
+            }
+            //sanity check
+            long now = System.currentTimeMillis();
+            if (now > sanityCheckStamp) {
+                sanityCheckStamp = now + Settings.SANITY_CHECK_INTERVAL;
+                sanity_check();
+            }
 
-                // Indexes weights get updated after quarterly futures expiry + 5 seconds
-                if (Settings.MARK_PRICE_CALC && System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
-                    LOGGER.info("New quarterly expiry, updating index weights.");
-                   // e.get_instrument_composite_index();
-                }
+            // Indexes weights get updated after quarterly futures expiry + 5 seconds
+            if (Settings.MARK_PRICE_CALC && System.currentTimeMillis() > e.nextIndexUpdate + 5000) {
+                LOGGER.info("New quarterly expiry, updating index weights.");
+                // e.get_instrument_composite_index();
+            }
 
-                // if websocket connection open update orders
-                if (e.isWebsocketOpen()) {
-                    converge_orders();
-                    //Thread.sleep(Settings.LOOP_INTERVAL);
-                }
+            // if websocket connection open update orders
+            if (e.isWebsocketOpen()) {
+                converge_orders();
+                //Thread.sleep(Settings.LOOP_INTERVAL);
+            }
         }
     }
 }

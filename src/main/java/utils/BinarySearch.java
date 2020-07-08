@@ -44,15 +44,15 @@ public class BinarySearch {
     }
 
     /**
-     * Returns the index on where and element should be inserted to maintain sorted array
+     * Returns the index on where an element should be inserted to maintain sorted array
      * @param arr - array to process
      * @param length - size of array
      * @param key - key to insert in array
-     * @return
+     * @return index of array to be inserted
      */
-    public static int getIndexInSortedArray(long arr[], int length, long key) {
+    public static int getIndexInSortedArray(long[] arr, int length, long key) {
         int i = length;
-        while(i >= 0 && arr[i] > key){i--;};
+        while(i >= 0 && arr[i] > key){i--;}
         return (i + 1);
     }
 }

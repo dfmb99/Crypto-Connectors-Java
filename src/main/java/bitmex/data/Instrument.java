@@ -2,7 +2,7 @@ package bitmex.data;
 
 public class Instrument {
     private String timestamp;
-    private Float markPrice, midPrice, bidPrice, askPrice;
+    private Float markPrice, midPrice, bidPrice, askPrice, tickSize;
 
     public String getTimestamp() {
         return timestamp;
@@ -42,6 +42,14 @@ public class Instrument {
 
     public void setAskPrice(Float askPrice) {
         this.askPrice = askPrice;
+    }
+
+    public Float getTickSize() {
+        return tickSize;
+    }
+
+    public void setTickSize(Float tickSize) {
+        this.tickSize = tickSize;
     }
 
     /**

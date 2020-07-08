@@ -13,10 +13,7 @@ import utils.TimeStamp;
 import javax.websocket.*;
 import java.io.IOException;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.logging.Logger;
@@ -95,6 +92,7 @@ public class WsImp implements Ws {
     private final String apiSecret;
     private final String subscriptions;
     private final String symbol;
+    private final int tradeBinListSize;
 
     // order messages from web socket need to be ordered and processed synchronously
     private final OrderAsyncThread orderQueue;
@@ -106,17 +104,19 @@ public class WsImp implements Ws {
     private long minReconnectTimeStamp;
     //check latency sync lock
     private final Object latencyLock = "Latency checking lock";
+    private final Object intrumentUpdate = "Instrument update notification";
 
     /**
      * BitMex web socket client implementation for one symbol
      *
-     * @param rest      - bitmex rest api object
-     * @param testnet   - true if we want to connect to testnet, false otherwise
-     * @param apiKey    - apiKey
-     * @param apiSecret - apiSecret
-     * @param symbol    - symbol to subscribe
+     * @param rest             - bitmex rest api object
+     * @param testnet          - true if we want to connect to testnet, false otherwise
+     * @param apiKey           - apiKey
+     * @param apiSecret        - apiSecret
+     * @param symbol           - symbol to subscribe
+     * @param tradeBinListSize - size of the list to store tradeBin data from websocket, -1 to use default values
      */
-    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol) {
+    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol, int tradeBinListSize) throws InterruptedException {
         this.container = ContainerProvider.getWebSocketContainer();
         this.g = new Gson();
         this.rest = rest;
@@ -129,15 +129,16 @@ public class WsImp implements Ws {
         this.orderQueue = new OrderAsyncThread(this);
         this.minReconnectTimeStamp = 0L;
         this.symbol = symbol;
+        this.tradeBinListSize = tradeBinListSize > 0 ? tradeBinListSize : TRADE_BIN_MAX_LEN;
         // subscriptions to send to ws server
         this.subscriptions = "\"instrument:" + symbol + "\",\"liquidation:" + symbol + "\"," +
                 "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\"";
 
         // creates data structures to store data received by ws
-        List<Liquidation> liquidationData = new ArrayList<>();
-        List<Order> orderData = new ArrayList<>();
-        List<Execution> executionData = new ArrayList<>();
-        List<TradeBin> tradeBinData = new ArrayList<>();
+        List<Liquidation> liquidationData = new ArrayList<>(LIQ_MAX_LEN);
+        List<Order> orderData = new ArrayList<>(ORDER_MAX_LEN);
+        List<Execution> executionData = new ArrayList<>(EXEC_MAX_LEN);
+        List<TradeBin> tradeBinData = new ArrayList<>(tradeBinListSize);
         liquidationData.add(new Liquidation());
         orderData.add(new Order());
         executionData.add(new Execution());
@@ -185,11 +186,14 @@ public class WsImp implements Ws {
         this.userSession = userSession;
 
         // gets orders for this symbol, trough http request
-        Order[] restOrders = this.get_rest_orders();
-        List<Order> restOrdersReverse = new ArrayList<>();
-        for (int i = restOrders.length - 1; i >= 0; i--)
-            restOrdersReverse.add(restOrders[i]);
-        this.data.put(ORDER, restOrdersReverse);
+        List<Order> restOrders = Arrays.asList(this.get_rest_orders());
+        Collections.reverse(restOrders);
+        this.data.put(ORDER, restOrders);
+
+        // gets tradeBin data for this symbol, trough http request
+        List<TradeBin> tradeBinData = Arrays.asList(this.get_rest_last_1mCandles());
+        Collections.reverse(tradeBinData);
+        this.data.put(TRADE_BIN, tradeBinData);
 
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
@@ -273,6 +277,7 @@ public class WsImp implements Ws {
             }
         } else if (obj.has("table")) {
             String table = obj.get("table").getAsString();
+            LOGGER.fine("Received new ws update from table: " + table);
             switch (table) {
                 case "instrument":
                     new Thread(() -> update_intrument(obj)).start();
@@ -314,6 +319,10 @@ public class WsImp implements Ws {
 
         if (action.equals("partial")) {
             this.data.put(INSTRUMENT, instrumentNewData[0]);
+            // notifies method waiting for data
+            synchronized (intrumentUpdate) {
+                intrumentUpdate.notify();
+            }
         } else if (action.equals("update")) {
             Instrument instrumentData = (Instrument) this.data.get(INSTRUMENT);
             String timestamp = instrumentNewData[0].getTimestamp();
@@ -461,7 +470,7 @@ public class WsImp implements Ws {
             @SuppressWarnings("unchecked")
             List<TradeBin> tradeBinData = (List<TradeBin>) this.data.get(TRADE_BIN);
             for (TradeBin elem : tradeBinRec) {
-                if (tradeBinData.size() == TRADE_BIN_MAX_LEN)
+                if (tradeBinData.size() == this.tradeBinListSize)
                     tradeBinData.remove(0);
                 tradeBinData.add(elem);
             }
@@ -625,7 +634,7 @@ public class WsImp implements Ws {
         JsonObject params = new JsonObject();
         params.addProperty("binSize", "1m");
         params.addProperty("symbol", this.symbol);
-        params.addProperty("count", TRADE_BIN_MAX_LEN);
+        params.addProperty("count", this.tradeBinListSize);
         params.addProperty("reverse", true);
         return this.rest.get_trade_bucketed(params);
     }
@@ -633,14 +642,9 @@ public class WsImp implements Ws {
     /**
      * waits for instrument ws data, blocking thread
      */
-    private void waitForData() {
-        Instrument instrumentData = (Instrument) this.data.get(INSTRUMENT);
-        while (instrumentData.getMarkPrice() == null) {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                // Do nothing
-            }
+    private void waitForData() throws InterruptedException {
+        synchronized (intrumentUpdate) {
+            intrumentUpdate.wait();
         }
     }
 
