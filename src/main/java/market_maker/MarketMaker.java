@@ -496,10 +496,11 @@ class MarketMakerManager {
 
     /**
      * Checks current order spreads to markPrice, and amends them if necessary
+     *
+     * @param newPrices - new prices calculated based on current skew
      */
-    private void check_current_spread() throws InterruptedException {
+    private void check_current_spread(float[] newPrices) throws InterruptedException {
         float fairPrice = e.get_mark_price();
-        float[] newPrices = get_new_order_prices();
         Order[] topBookOrd = e.get_topBook_orders();
 
         // check if quoting a wide spread, amend orders if necessary
@@ -641,7 +642,7 @@ class MarketMakerManager {
                     }
                 }
             } else
-                check_current_spread();
+                check_current_spread(newPrices);
         }
     }
 
