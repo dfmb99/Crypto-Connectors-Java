@@ -24,9 +24,6 @@ public class Settings {
     public static final int MIN_SPREAD_TICKS = 0; // Minimum spread in ticks
     public static final boolean POST_ONLY = false;
 
-    // Timeouts
-    public static long SANITY_CHECK_INTERVAL = 60000L; // How often to perform sanity checks
-
     // Position limits
     public static final boolean CHECK_POSITION_LIMITS = true;
     public static final long MIN_POSITION = -200L;

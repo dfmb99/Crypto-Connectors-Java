@@ -347,12 +347,18 @@ class ExchangeInterface {
 }
 
 class MarketMakerManager {
+    private final static long DAY_TO_MILLISECONDS = 86400000L;
+    private final static long MINUTE_TO_MILLISECONDS = 60000L;
     private final static int API_REST_INTERVAL = 500;
+
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
     private final ExchangeInterface e;
     private final String symbol;
+    private long fillsCounter;
     // sanity checks are made when this timestamp is hit
     private long sanityCheckStamp;
+    // timestamp used to reset fills counter every 24 hours;
+    private long fillsStamp;
     // list w/ orderIDs of open buy orders made by the algorithm
     private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
@@ -361,7 +367,9 @@ class MarketMakerManager {
     public MarketMakerManager(String symbol) throws InterruptedException {
         e = new ExchangeInterface(symbol);
         this.symbol = symbol;
-        this.sanityCheckStamp = System.currentTimeMillis() + Settings.SANITY_CHECK_INTERVAL;
+        this.fillsCounter = 0L;
+        this.fillsStamp = System.currentTimeMillis() + DAY_TO_MILLISECONDS;
+        this.sanityCheckStamp = System.currentTimeMillis() + MINUTE_TO_MILLISECONDS;
         this.openBuyOrds = new ArrayList<>(2);
         this.openSellOrds = new ArrayList<>(2);
         List<List<Order>> openOrders = e.rest_get_open_orders();
@@ -495,7 +503,7 @@ class MarketMakerManager {
         Order[] topBookOrd = e.get_topBook_orders();
 
         // check if quoting a wide spread, amend orders if necessary
-        if ((topBookOrd[0] != null && topBookOrd[1] != null ) && (get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
+        if ((topBookOrd[0] != null && topBookOrd[1] != null) && (get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
                 (get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
             LOGGER.info("Spread wide while quoting both sides, amending both orders.");
             amend_orders(newPrices);
@@ -569,10 +577,14 @@ class MarketMakerManager {
         float markPrice = e.get_mark_price();
         Order[] topBookOrd = e.get_topBook_orders();
 
-        if (this.openBuyOrds.removeIf(e::is_buy_order_filled))
+        if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
             LOGGER.info("Buy order filled.");
-        if (this.openSellOrds.removeIf(e::is_sell_order_filled))
+            fillsCounter++;
+        }
+        if (this.openSellOrds.removeIf(e::is_sell_order_filled)) {
             LOGGER.info("Sell order filled.");
+            fillsCounter++;
+        }
 
         // place new buy order, if no buy order is opened
         if (this.openBuyOrds.size() < 1 && topBookOrd[0] == null && !long_position_limit_exceeded()) {
@@ -616,12 +628,12 @@ class MarketMakerManager {
                 // interval after http request
                 Thread.sleep(API_REST_INTERVAL);
                 // if order placement had any error
-                if(ordResp == null)
+                if (ordResp == null)
                     return;
 
                 for (Order elem : ordResp) {
                     // if order placed with success and still open add it to open orders in local memory
-                    if (elem.getOrdStatus() != null && (elem.getOrdStatus() .equals("New") || elem.getOrdStatus() .equals("PartiallyFilled"))) {
+                    if (elem.getOrdStatus() != null && (elem.getOrdStatus().equals("New") || elem.getOrdStatus().equals("PartiallyFilled"))) {
                         if (elem.getSide().equals("Buy"))
                             this.openBuyOrds.add(elem.getOrderID());
                         else if (elem.getSide().equals("Sell"))
@@ -694,7 +706,7 @@ class MarketMakerManager {
             JsonObject obj = new JsonObject();
             JsonArray params = new JsonArray();
 
-            for(String orderID: toCancel)
+            for (String orderID : toCancel)
                 params.add(orderID);
             obj.add("orderID", params);
             e.cancel_orders(obj);
@@ -708,6 +720,7 @@ class MarketMakerManager {
         float spreadIndex = get_spread_index();
         LOGGER.info(String.format("Position: %d", e.get_position_size()));
         LOGGER.info(String.format("Position entry price: %f", e.get_position_entry()));
+        LOGGER.info(String.format("Fills in the last 24h: %d", fillsCounter));
         LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
         LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
         LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
@@ -726,7 +739,14 @@ class MarketMakerManager {
             // data sanity check
             long now = System.currentTimeMillis();
             if (now > sanityCheckStamp) {
-                sanityCheckStamp = now + Settings.SANITY_CHECK_INTERVAL;
+                sanityCheckStamp = now + MINUTE_TO_MILLISECONDS;
+                sanity_check();
+            }
+
+            // reset fills counter
+            if (now > fillsStamp) {
+                fillsStamp = now + DAY_TO_MILLISECONDS;
+                fillsCounter = 0;
                 sanity_check();
             }
         }
