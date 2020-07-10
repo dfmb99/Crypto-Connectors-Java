@@ -244,7 +244,7 @@ public class RestImp implements Rest {
             Order[] response = g.fromJson(api_call("GET", "/order", data), Order[].class);
 
             // only returns orders that start with the orderIDPrefix
-            List<Order> toRet = new ArrayList<>();
+            List<Order> toRet = new ArrayList<>(response.length);
             for (Order v : response) {
                 if (v.getClOrdID() != null && v.getClOrdID().startsWith(this.orderIDPrefix))
                     toRet.add(v);

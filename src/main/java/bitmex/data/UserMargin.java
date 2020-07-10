@@ -33,6 +33,10 @@ public class UserMargin {
      * @param other - updated object
      */
     public void update(UserMargin other) {
+        if(other.getMarginBalance() != null)
+            this.marginBalance = other.getMarginBalance();
+        if(other.getAvailableMargin() != null)
+            this.availableMargin = other.getAvailableMargin();
         if(other.getWalletBalance() != null)
             this.walletBalance = other.getWalletBalance();
     }

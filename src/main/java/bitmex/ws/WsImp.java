@@ -23,7 +23,6 @@ import java.util.logging.Logger;
  */
 class HeartbeatThread extends Thread {
     private final WsImp ws;
-    private final static Logger LOGGER = Logger.getLogger(HeartbeatThread.class.getName());
 
     public HeartbeatThread(WsImp ws) {
         this.ws = ws;
@@ -37,10 +36,8 @@ class HeartbeatThread extends Thread {
         while (!Thread.interrupted()) {
             if (System.currentTimeMillis() - startTime > 5000 && !sentPing) {
                 sentPing = true;
-                LOGGER.fine("Heartbeat thread sending ping.");
                 this.ws.sendMessage("ping");
             } else if (System.currentTimeMillis() - startTime > 10000) {
-                LOGGER.fine("Heartbeat thread reconnecting.");
                 this.ws.closeSession();
                 this.interrupt();
             }
@@ -54,7 +51,6 @@ class HeartbeatThread extends Thread {
 class OrderAsyncThread extends Thread {
     private final WsImp ws;
     private final Deque<JsonObject> queue;
-    private final static Logger LOGGER = Logger.getLogger(OrderAsyncThread.class.getName());
 
     public OrderAsyncThread(WsImp ws) {
         this.ws = ws;
@@ -63,7 +59,6 @@ class OrderAsyncThread extends Thread {
     }
 
     public void add(JsonObject obj) {
-        LOGGER.finest("Added order to queue.");
         this.queue.addLast(obj); // blocks until there is free space in the optionally bounded queue
     }
 
@@ -72,7 +67,6 @@ class OrderAsyncThread extends Thread {
         while (!Thread.interrupted()) {
             JsonObject element;
             while ((element = queue.poll()) != null) { // does not block on empty list but returns null instead
-                LOGGER.finest("Processing order from queue.");
                 this.ws.update_order(element);
             }
         }
@@ -102,9 +96,10 @@ public class WsImp implements Ws {
     private HeartbeatThread heartbeatThread;
     // minimum timestamp to check latency on instrument update
     private long minReconnectTimeStamp;
-    //check latency sync lock
+    // check latency sync lock
     private final Object latencyLock = "Latency checking lock";
-    private final Object intrumentUpdate = "Instrument update notification";
+    // wait / notification mechanism to wait for updates before allowing methods to be executed
+    private final Object wsDataUpdate = "Web socket data update";
 
     /**
      * BitMex web socket client implementation for one symbol
@@ -116,7 +111,7 @@ public class WsImp implements Ws {
      * @param symbol           - symbol to subscribe
      * @param tradeBinListSize - size of the list to store tradeBin data from websocket, -1 to use default values
      */
-    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol, int tradeBinListSize) throws InterruptedException {
+    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol, int tradeBinListSize) {
         this.container = ContainerProvider.getWebSocketContainer();
         this.g = new Gson();
         this.rest = rest;
@@ -135,14 +130,14 @@ public class WsImp implements Ws {
                 "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\"";
 
         // creates data structures to store data received by ws
-        List<Liquidation> liquidationData = new ArrayList<>(LIQ_MAX_LEN);
-        List<Order> orderData = new ArrayList<>(ORDER_MAX_LEN);
-        List<Execution> executionData = new ArrayList<>(EXEC_MAX_LEN);
-        List<TradeBin> tradeBinData = new ArrayList<>(tradeBinListSize);
-        liquidationData.add(new Liquidation());
-        orderData.add(new Order());
-        executionData.add(new Execution());
-        tradeBinData.add(new TradeBin());
+        Liquidation[] liquidationData = new Liquidation[LIQ_MAX_LEN];
+        Order[] orderData = new Order[ORDER_MAX_LEN];
+        Execution[] executionData = new Execution[EXEC_MAX_LEN];
+        TradeBin[] tradeBinData = new TradeBin[tradeBinListSize];
+        liquidationData[0] = new Liquidation();
+        orderData[0] = new Order();
+        executionData[0] = new Execution();
+        tradeBinData[0] = new TradeBin();
 
         // initializes data in memory
         this.data.put(INSTRUMENT, new Instrument());
@@ -154,7 +149,6 @@ public class WsImp implements Ws {
         this.data.put(MARGIN, new UserMargin());
 
         this.connect();
-        this.waitForData();
     }
 
     /**
@@ -163,6 +157,7 @@ public class WsImp implements Ws {
     void connect() {
         try {
             this.container.connectToServer(this, URI.create(this.url));
+            this.waitForData();
         } catch (Exception e) {
             LOGGER.warning("Failed to connect to web socket server.");
             try {
@@ -186,13 +181,13 @@ public class WsImp implements Ws {
         this.userSession = userSession;
 
         // gets orders for this symbol, trough http request
-        List<Order> restOrders = Arrays.asList(this.get_rest_orders());
-        Collections.reverse(restOrders);
+        Order[] restOrders = this.get_rest_orders();
+        Collections.reverse(Arrays.asList(restOrders));
         this.data.put(ORDER, restOrders);
 
         // gets tradeBin data for this symbol, trough http request
-        List<TradeBin> tradeBinData = Arrays.asList(this.get_rest_last_1mCandles());
-        Collections.reverse(tradeBinData);
+        TradeBin[] tradeBinData = this.get_rest_last_1mCandles();
+        Collections.reverse(Arrays.asList(tradeBinData));
         this.data.put(TRADE_BIN, tradeBinData);
 
         long expires = Auth.generate_expires();
@@ -266,7 +261,7 @@ public class WsImp implements Ws {
 
         JsonObject obj = g.fromJson(message, JsonObject.class);
         if (obj.has("subscribe")) {
-            LOGGER.info("Subscribed successfully to " + obj.get("subscribe"));
+            LOGGER.fine("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
             LOGGER.warning(obj.get("error").getAsString());
             // Rate limited
@@ -319,9 +314,8 @@ public class WsImp implements Ws {
 
         if (action.equals("partial")) {
             this.data.put(INSTRUMENT, instrumentNewData[0]);
-            // notifies method waiting for data
-            synchronized (intrumentUpdate) {
-                intrumentUpdate.notify();
+            synchronized (wsDataUpdate) {
+                wsDataUpdate.notify();
             }
         } else if (action.equals("update")) {
             Instrument instrumentData = (Instrument) this.data.get(INSTRUMENT);
@@ -364,6 +358,8 @@ public class WsImp implements Ws {
             OrderBookL2[] orderbookData = (OrderBookL2[]) this.data.get(ORDER_BOOK_L2);
             if (orderbookData == null)
                 return;
+
+            orderbookData = Arrays.copyOf(orderbookData, orderbookData.length);
             //checks every row on data array
             for (OrderBookL2 elem : data) {
                 long id = elem.getId();
@@ -395,8 +391,7 @@ public class WsImp implements Ws {
      */
     private void update_liquidation(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        @SuppressWarnings("unchecked")
-        List<Liquidation> liquidationData = (List<Liquidation>) this.data.get(LIQUIDATION);
+        List<Liquidation> liquidationData = new ArrayList<>(Arrays.asList((Liquidation[]) this.data.get(LIQUIDATION)));
         List<Liquidation> data = g.fromJson(obj.get("data"), new TypeToken<List<Liquidation>>() {
         }.getType());
 
@@ -467,14 +462,13 @@ public class WsImp implements Ws {
         }.getType());
 
         if (tradeBinRec.size() > 0 && action.equals("insert")) {
-            @SuppressWarnings("unchecked")
-            List<TradeBin> tradeBinData = (List<TradeBin>) this.data.get(TRADE_BIN);
+            List<TradeBin> tradeBinData = new ArrayList<>(Arrays.asList((TradeBin[]) this.data.get(TRADE_BIN)));
             for (TradeBin elem : tradeBinRec) {
                 if (tradeBinData.size() == this.tradeBinListSize)
                     tradeBinData.remove(0);
                 tradeBinData.add(elem);
             }
-            this.data.put(TRADE_BIN, tradeBinData);
+            this.data.put(TRADE_BIN, tradeBinData.toArray(new TradeBin[0]));
         }
     }
 
@@ -489,14 +483,13 @@ public class WsImp implements Ws {
         }.getType());
 
         if (executionRec.size() > 0 && action.equals("insert") || action.equals("partial")) {
-            @SuppressWarnings("unchecked")
-            List<Execution> executionData = (List<Execution>) this.data.get(EXECUTION);
+            List<Execution> executionData = new ArrayList<>(Arrays.asList((Execution[]) this.data.get(EXECUTION)));
             for (Execution elem : executionRec) {
                 if (executionData.size() == EXEC_MAX_LEN)
                     executionData.remove(0);
                 executionData.add(elem);
             }
-            this.data.put(EXECUTION, executionData);
+            this.data.put(EXECUTION, executionData.toArray(new Execution[0]));
         }
     }
 
@@ -507,8 +500,7 @@ public class WsImp implements Ws {
      */
     protected void update_order(JsonObject obj) {
         String action = obj.get("action").getAsString();
-        @SuppressWarnings("unchecked")
-        List<Order> orderData = (List<Order>) this.data.get(ORDER);
+        List<Order> orderData = new ArrayList<>(Arrays.asList((Order[]) this.data.get(ORDER)));
         List<Order> orderRec = g.fromJson(obj.get("data"), new TypeToken<List<Order>>() {
         }.getType());
 
@@ -543,6 +535,7 @@ public class WsImp implements Ws {
                     orderData.add(elemRec);
                 }
             }
+            this.data.put(ORDER, orderData.toArray(new Order[0]));
         }
     }
 
@@ -596,19 +589,17 @@ public class WsImp implements Ws {
 
     @Override
     public Order[] get_openOrders(String orderIDPrefix) {
-        @SuppressWarnings("unchecked")
-        List<Order> allOrders = (List<Order>) this.data.get(ORDER);
+        List<Order> allOrders = new ArrayList<>(Arrays.asList((Order[]) this.data.get(ORDER)));
         return allOrders.stream()
-                .filter(o -> o.getClOrdID().startsWith(orderIDPrefix) && (o.getOrdStatus().equals("New") || o.getOrdStatus().equals("PartiallyFilled")))
+                .filter(o -> o.getClOrdID() != null && o.getOrdStatus() != null && o.getClOrdID().startsWith(orderIDPrefix) && (o.getOrdStatus().equals("New") || o.getOrdStatus().equals("PartiallyFilled")))
                 .toArray(Order[]::new);
     }
 
     @Override
     public Order[] get_filledOrders(String orderIDPrefix) {
-        @SuppressWarnings("unchecked")
-        List<Order> allOrders = (List<Order>) this.data.get(ORDER);
+        List<Order> allOrders = new ArrayList<>(Arrays.asList((Order[]) this.data.get(ORDER)));
         return allOrders.stream()
-                .filter(o -> o.getClOrdID().startsWith(orderIDPrefix) && o.getOrdStatus().equals("Filled"))
+                .filter(o -> o.getClOrdID() != null && o.getOrdStatus() != null && o.getClOrdID().startsWith(orderIDPrefix) && o.getOrdStatus().equals("Filled"))
                 .toArray(Order[]::new);
     }
 
@@ -643,8 +634,8 @@ public class WsImp implements Ws {
      * waits for instrument ws data, blocking thread
      */
     private void waitForData() throws InterruptedException {
-        synchronized (intrumentUpdate) {
-            intrumentUpdate.wait();
+        synchronized (wsDataUpdate) {
+            wsDataUpdate.wait();
         }
     }
 

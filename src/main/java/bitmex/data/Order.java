@@ -75,15 +75,15 @@ public class Order {
      * @param other - updated object
      */
     public void update(Order other) {
-        if(side != null)
+        if(other.getSide() != null)
             this.side = other.getSide();
-        if(ordType != null)
+        if(other.getOrdType() != null)
             this.ordType = other.getOrdType();
-        if(ordStatus != null)
+        if(other.getOrdStatus() != null)
             this.ordStatus = other.getOrdStatus();
-        if(orderQty != null)
+        if(other.getOrderQty() != null)
             this.orderQty = other.getOrderQty();
-        if(price != null)
+        if(other.getPrice() != null)
             this.price = other.getPrice();
     }
 }
