@@ -510,29 +510,18 @@ public class WsImp implements Ws {
                     orderData.remove(0);
                 orderData.add(elem);
             }
+            this.data.put(ORDER, orderData.toArray(new Order[0]));
         } else if (action.equals("update")) {
-            // if order match found in memory -> true, false otherwise
-            boolean orderMatchFound;
             // iterates over data received
             for (Order elemRec : orderRec) {
-                orderMatchFound = false;
                 // iterates over orderData stored in memory/
                 for (Order elemData : orderData) {
                     // if same order (same orderID)
                     if (elemData.equals(elemRec)) {
-                        orderMatchFound = true;
-                        // remove old data object, updates data element and adds updated one to memory
-                        orderData.remove(elemData);
+                        // updates data element
                         elemData.update(elemRec);
-                        orderData.add(elemData);
                         break;
                     }
-                }
-                // if there was not found an order with the same orderID on memory we add the object received
-                if (!orderMatchFound) {
-                    if (orderData.size() == ORDER_MAX_LEN)
-                        orderData.remove(0);
-                    orderData.add(elemRec);
                 }
             }
             this.data.put(ORDER, orderData.toArray(new Order[0]));

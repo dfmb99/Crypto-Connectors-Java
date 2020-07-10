@@ -191,8 +191,7 @@ class ExchangeInterface {
      * @return List<List < Order>>[0] -> open buy orders / List<List<Order>>[1] -> open sell orders
      */
     protected List<List<Order>> get_open_orders() {
-        Order[] openOrders = this.mexWs.get_openOrders(this.orderIDPrefix);
-        return getLists(openOrders);
+        return getOrderLists(this.mexWs.get_openOrders(this.orderIDPrefix));
     }
 
     /**
@@ -201,8 +200,7 @@ class ExchangeInterface {
      * @return List<List < Order>>[0] -> filled buy orders / List<List<Order>>[1] -> filled sell orders
      */
     protected List<List<Order>> get_filled_orders() {
-        Order[] filledOrders = this.mexWs.get_filledOrders(this.orderIDPrefix);
-        return getLists(filledOrders);
+        return getOrderLists(this.mexWs.get_filledOrders(this.orderIDPrefix));
     }
 
     /**
@@ -210,7 +208,7 @@ class ExchangeInterface {
      *
      * @return List<List < Order>>[0] -> filled buy orders / List<List<Order>>[1] -> filled sell orders
      */
-    private List<List<Order>> getLists(Order[] orders) {
+    private List<List<Order>> getOrderLists(Order[] orders) {
         List<Order> buyOrd = new ArrayList<>(orders.length);
         List<Order> sellOrd = new ArrayList<>(orders.length);
         for (Order e : orders) {
@@ -617,6 +615,9 @@ class MarketMakerManager {
                 Order[] ordResp = e.place_order_bulk(orders);
                 // interval after http request
                 Thread.sleep(API_REST_INTERVAL);
+                // if order placement had any error
+                if(ordResp == null)
+                    return;
 
                 for (Order elem : ordResp) {
                     // if order placed with success and still open add it to open orders in local memory

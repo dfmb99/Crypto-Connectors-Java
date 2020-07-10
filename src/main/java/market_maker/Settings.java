@@ -18,11 +18,11 @@ public class Settings {
     // Market making configuration
     public static final long ORDER_SIZE = 20L; // single order size
     public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
-    public static final int TRADE_BIN_SIZE = 20;
-    public static final float QUOTE_SPREAD = 5f; // realized volatility minutes to base our spread index
+    public static final int TRADE_BIN_SIZE = 240;
+    public static final float QUOTE_SPREAD = 10f; // realized volatility minutes to base our spread index
     public static final float QUOTE_SPREAD_FACTOR = 0.9f;
     public static final int MIN_SPREAD_TICKS = 0; // Minimum spread in ticks
-    public static final boolean POST_ONLY = true;
+    public static final boolean POST_ONLY = false;
 
     // Timeouts
     public static long SANITY_CHECK_INTERVAL = 60000L; // How often to perform sanity checks
