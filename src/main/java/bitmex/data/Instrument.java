@@ -2,7 +2,17 @@ package bitmex.data;
 
 public class Instrument {
     private String timestamp;
-    private Float markPrice, midPrice, bidPrice, askPrice, tickSize;
+    private Float markPrice;
+    private Float midPrice;
+    private Float bidPrice;
+    private Float askPrice;
+    private Float tickSize;
+    private Float underlyingToSettleMultiplier;
+    private Float multiplier;
+    private Float indicativeSettlePrice;
+
+    private Float initMargin;
+    private Boolean isQuanto, isInverse;
 
     public String getTimestamp() {
         return timestamp;
@@ -50,6 +60,50 @@ public class Instrument {
 
     public void setTickSize(Float tickSize) {
         this.tickSize = tickSize;
+    }
+
+    public Float getUnderlyingToSettleMultiplier() {
+        return underlyingToSettleMultiplier;
+    }
+
+    public void setUnderlyingToSettleMultiplier(Float underlyingToSettleMultiplier) {
+        this.underlyingToSettleMultiplier = underlyingToSettleMultiplier;
+    }
+
+    public Float getMultiplier() {
+        return multiplier;
+    }
+
+    public void setMultiplier(Float multiplier) {
+        this.multiplier = multiplier;
+    }
+
+    public Float getIndicativeSettlePrice() {
+        return indicativeSettlePrice;
+    }
+
+    public void setIndicativeSettlePrice(Float indicativeSettlePrice) {
+        this.indicativeSettlePrice = indicativeSettlePrice;
+    }
+
+    public Boolean getQuanto() {
+        return isQuanto;
+    }
+
+    public void setQuanto(Boolean quanto) {
+        isQuanto = quanto;
+    }
+
+    public Boolean getInverse() {
+        return isInverse;
+    }
+
+    public void setInverse(Boolean inverse) {
+        isInverse = inverse;
+    }
+
+    public Float getInitMargin() {
+        return initMargin;
     }
 
     /**

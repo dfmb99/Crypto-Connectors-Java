@@ -1,8 +1,6 @@
 package market_maker;
 
 public class Settings {
-    // Main configuration
-    public static final String SYMBOL = "XBTUSD";
     public static final boolean TESTNET = true;
     public static final boolean DRY_RUN = false;
     public static final String ORDER_ID_PREFIX = "mmbitmex";
@@ -15,17 +13,25 @@ public class Settings {
     public static final String API_KEY = "_DnJPkOPL5DLemZnjhh1KQRO";
     public static final String API_SECRET = "u5-PUEPK6LMQoxF4LakHtmCD4nO_jbFfsPkeNFznTFyP4O9P";
 
-    // Market making configuration
-    public static final long ORDER_SIZE = 20L; // single order size
-    public static final float SPREAD_MAINTAIN_RATIO = 1.3f;
-    public static final int TRADE_BIN_SIZE = 240;
-    public static final float QUOTE_SPREAD = 10f; // realized volatility minutes to base our spread index
-    public static final float QUOTE_SPREAD_FACTOR = 0.9f;
-    public static final int MIN_SPREAD_TICKS = 0; // Minimum spread in ticks
-    public static final boolean POST_ONLY = false;
+    public static final String[] SYMBOL = {"XBTUSD", "ETHUSD"};
 
-    // Position limits
-    public static final boolean CHECK_POSITION_LIMITS = true;
-    public static final long MIN_POSITION = -200L;
-    public static final long MAX_POSITION = 200L;
+    // Automatic order size calculation
+    public static final boolean[] FLEXIBLE_ORDER_SIZE = {true, true};
+    public static final float[] POS_MAX_MARGIN = {10f, 10f}; // maximum percentage of account to be used as position margin
+    public static final float[] POSITION_FACTOR = {10f, 10f}; // orderSize * positionFactor = maximumPosition / -minimumPosition
+
+    // Manual order size calculation
+    public static final long[] ORDER_SIZE = {20L, 20L}; // single order size
+    public static final long[] MIN_POSITION = {-200L};
+    public static final long[] MAX_POSITION = {200L};
+
+    // Market making settings
+    public static final float[] SPREAD_MAINTAIN_RATIO = {1.3f, 1.3f};
+    public static final int[] TRADE_BIN_SIZE = {360, 360};
+    public static final float[] QUOTE_SPREAD = {30f, 30f}; // realized volatility minutes to base our spread index
+    public static final float[] QUOTE_SPREAD_FACTOR = {0.85f, 0.85f};
+    public static final int[] MIN_SPREAD_TICKS = {10, 10}; // Minimum spread in ticks
+    public static final boolean[] POST_ONLY = {false, false};
+    public static final boolean[] CHECK_POSITION_LIMITS = {true, true};
+
 }

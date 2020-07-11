@@ -113,13 +113,12 @@ public class RestImp implements Rest {
                     return api_error(status, verb, endpoint, data, r.readEntity(String.class), r.getHeaders());
 
             } catch (ProcessingException pe) { //Error in communication with server
-                LOGGER.info("Timeout occurred.");
+                LOGGER.info(String.format("Timeout occurred on %s%s. Retrying request...", verb, endpoint));
                 try {
                     Thread.sleep(Rest.RETRY_PERIOD); //wait until attempting again.
                 } catch (InterruptedException e) {
                     //Nothing to be done here, if this happens we will just retry sooner.
                 }
-                LOGGER.info("Retrying to execute request.");
             }
         }
         return null;

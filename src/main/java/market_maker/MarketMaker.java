@@ -1,5 +1,6 @@
 package market_maker;
 
+import Exceptions.NotImplementedException;
 import bitmex.data.Instrument;
 import bitmex.data.Order;
 import bitmex.data.TradeBin;
@@ -20,32 +21,23 @@ import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
 class ExchangeInterface {
-    /*
-    // Funding interval of perpetual swaps on miliseconds
-    private final static long FUNDING_INTERVAL = 28800000;
-    // days per anum
-    private final static int DAYS_ANNUM = 365;
-    // 1 day converted into milliseconds
-    private final static long DAY_MS = 86400000L;
-    */
 
+    private final int i;
     private final RestImp mexRest;
     private final WsImp mexWs;
-    private final String symbol;
     private final String orderIDPrefix;
     private final float tickSize;
 
-    public ExchangeInterface(String symbol) {
-        this.symbol = symbol;
+    public ExchangeInterface(int settingsIndex) {
+        this.i = settingsIndex;
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
-        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, symbol, Settings.TRADE_BIN_SIZE);
+        this.mexWs = new WsImp(mexRest, Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, Settings.SYMBOL[i], Settings.TRADE_BIN_SIZE[i]);
 
         // http request to get instrument data
-        Instrument instrument = mexWs.get_instrument();
+        Instrument instrument = get_instrument_contract();
         this.tickSize = instrument.getTickSize();
     }
-
     /**
      * Checks if websocket connection is open
      *
@@ -53,6 +45,24 @@ class ExchangeInterface {
      */
     protected boolean isWebsocketOpen() {
         return this.mexWs.isSessionOpen();
+    }
+
+    /**
+     * Returns instrument data of contract
+     *
+     * @return Instrument object of this contract
+     */
+    protected Instrument get_instrument_contract() {
+        return this.mexWs.get_instrument();
+    }
+
+    /**
+     * Returns instrument data of XBT index
+     *
+     * @return Instrument object of XBT index
+     */
+    protected Instrument get_instrument_XBT_index() {
+        return this.mexRest.get_instrument(".BXBT");
     }
 
     /**
@@ -165,7 +175,7 @@ class ExchangeInterface {
         List<Order> sellOrd = new ArrayList<>(100);
 
         JsonObject params = new JsonObject();
-        params.addProperty("symbol", this.symbol);
+        params.addProperty("symbol", Settings.SYMBOL[i]);
         params.addProperty("filter", "{\"ordStatus.isTerminated\":false}");
         params.addProperty("count", 100);
         params.addProperty("reverse", true);
@@ -293,6 +303,15 @@ class ExchangeInterface {
     }
 
     /**
+     * Get wallet balance
+     *
+     * @return wallet balance
+     */
+    protected float get_wallet_balance() {
+        return this.mexWs.get_margin().getWalletBalance();
+    }
+
+    /**
      * Returns top of the book orders (highest bid and lowest ask)
      *
      * @return Order[0] -> highest open buy order  / Order[1] -> lowest open sell order
@@ -352,8 +371,9 @@ class MarketMakerManager {
     private final static int API_REST_INTERVAL = 500;
 
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
+    // Settings file index
+    private final int i;
     private final ExchangeInterface e;
-    private final String symbol;
     private long fillsCounter;
     // sanity checks are made when this timestamp is hit
     private long sanityCheckStamp;
@@ -363,10 +383,13 @@ class MarketMakerManager {
     private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
     private final List<String> openSellOrds;
+    private long orderSize;
+    private long maxPosition;
+    private long minPosition;
 
-    public MarketMakerManager(String symbol) throws InterruptedException {
-        e = new ExchangeInterface(symbol);
-        this.symbol = symbol;
+    public MarketMakerManager(int settingsIndex) throws InterruptedException, NotImplementedException {
+        this.i = settingsIndex;
+        this.e = new ExchangeInterface(settingsIndex);
         this.fillsCounter = 0L;
         this.fillsStamp = System.currentTimeMillis() + DAY_TO_MILLISECONDS;
         this.sanityCheckStamp = System.currentTimeMillis() + MINUTE_TO_MILLISECONDS;
@@ -377,7 +400,38 @@ class MarketMakerManager {
             this.openBuyOrds.add(elem.getOrderID());
         for (Order elem : openOrders.get(1))
             this.openSellOrds.add(elem.getOrderID());
+
+        if(!Settings.FLEXIBLE_ORDER_SIZE[i]) {
+            this.orderSize = Settings.ORDER_SIZE[i];
+            this.maxPosition = Settings.MAX_POSITION[i];
+            this.minPosition = Settings.MIN_POSITION[i];
+        } else
+            calc_pos_max_delta();
+
         run_loop();
+    }
+
+    private void calc_pos_max_delta() throws NotImplementedException {
+        // instrument of contract we are quoting
+        Instrument instrument = e.get_instrument_contract();
+
+        float deltaMaxPos = Settings.POS_MAX_MARGIN[i] * e.get_wallet_balance() / instrument.getInitMargin() / 100f;
+        LOGGER.info(String.valueOf(deltaMaxPos));
+        long orderSize;
+
+        if(instrument.getQuanto()) {
+            orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] / (instrument.getMultiplier() * instrument.getMarkPrice()) );
+        }else if(instrument.getInverse()) {
+            orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] * instrument.getMarkPrice() / instrument.getMultiplier());
+        }else if(!instrument.getQuanto() && !instrument.getInverse()){
+            orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] / instrument.getMultiplier());
+        } else
+            throw new NotImplementedException(String.format("%s Contract not implemented.", Settings.SYMBOL[i]));
+
+        this.orderSize = Math.abs(orderSize); // inverse contracts have negative multipliers
+        this.maxPosition = this.orderSize* (long) Settings.POSITION_FACTOR[i];
+        this.minPosition = - this.maxPosition;
+        LOGGER.info(String.valueOf(this.orderSize));
     }
 
     /**
@@ -389,9 +443,9 @@ class MarketMakerManager {
      */
     private JsonObject prepare_limit_order(long orderQty, float price) {
         JsonObject params = new JsonObject();
-        String execInst = Settings.POST_ONLY ? "ParticipateDoNotInitiate" : "";
+        String execInst = Settings.POST_ONLY[i] ? "ParticipateDoNotInitiate" : "";
 
-        params.addProperty("symbol", this.symbol);
+        params.addProperty("symbol", Settings.SYMBOL[i]);
         params.addProperty("orderQty", orderQty);
         params.addProperty("price", price);
         params.addProperty("ordType", "Limit");
@@ -420,9 +474,9 @@ class MarketMakerManager {
      * @return true if is exceeded, false otherwise
      */
     private boolean short_position_limit_exceeded() {
-        if (!Settings.CHECK_POSITION_LIMITS)
+        if (!Settings.CHECK_POSITION_LIMITS[i])
             return false;
-        return e.get_position_size() <= Settings.MIN_POSITION;
+        return e.get_position_size() <= this.minPosition;
     }
 
     /**
@@ -431,9 +485,9 @@ class MarketMakerManager {
      * @return true if is exceeded, false otherwise
      */
     private boolean long_position_limit_exceeded() {
-        if (!Settings.CHECK_POSITION_LIMITS)
+        if (!Settings.CHECK_POSITION_LIMITS[i])
             return false;
-        return e.get_position_size() >= Settings.MAX_POSITION;
+        return e.get_position_size() >= this.maxPosition;
     }
 
     /**
@@ -450,8 +504,8 @@ class MarketMakerManager {
             closeArr[i - 1] = (float) Math.log(tradeBinData[i].getClose() / tradeBinData[i - 1].getClose());
 
         float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
-        currVolIndex = currVolIndex * (float) Math.sqrt(1f / ((float) closeArr.length / Settings.QUOTE_SPREAD));
-        float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS * e.get_tickSize(), midPrice);
+        currVolIndex = currVolIndex * (float) Math.sqrt(1f / ((float) closeArr.length / Settings.QUOTE_SPREAD[i]));
+        float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS[i] * e.get_tickSize(), midPrice);
 
         return Math.max(currVolIndex, minimumSpread);
     }
@@ -466,7 +520,7 @@ class MarketMakerManager {
         long currPos = e.get_position_size();
         float skew = 0;
 
-        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) Settings.ORDER_SIZE / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR;
+        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[i];
         if (currPos > 0)
             skew = c * -1f;
         else if (currPos < 0)
@@ -487,7 +541,7 @@ class MarketMakerManager {
         float quoteMidPrice = e.get_mark_price() * (1f + get_position_skew(spreadIndex));
         prices[0] = MathCustom.roundToFraction(quoteMidPrice * (1f - spreadIndex), tickSize);
         prices[1] = MathCustom.roundToFraction(quoteMidPrice * (1f + spreadIndex), tickSize);
-        if (Settings.POST_ONLY) {
+        if (Settings.POST_ONLY[i]) {
             prices[0] = Math.min(prices[0], (e.get_ask_price() - tickSize));
             prices[1] = Math.max(prices[1], (e.get_bid_price() + tickSize));
         }
@@ -504,12 +558,12 @@ class MarketMakerManager {
         Order[] topBookOrd = e.get_topBook_orders();
 
         // check if quoting a wide spread, amend orders if necessary
-        if ((topBookOrd[0] != null && topBookOrd[1] != null) && (get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) &&
-                (get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
+        if ((topBookOrd[0] != null && topBookOrd[1] != null) && (get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i]) &&
+                (get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i])) {
             LOGGER.info("Spread wide while quoting both sides, amending both orders.");
             amend_orders(newPrices);
-        } else if ((short_position_limit_exceeded() && topBookOrd[0] != null && topBookOrd[1] == null && get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO) ||
-                (long_position_limit_exceeded() && topBookOrd[1] != null && topBookOrd[0] == null && get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO)) {
+        } else if ((short_position_limit_exceeded() && topBookOrd[0] != null && topBookOrd[1] == null && get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i]) ||
+                (long_position_limit_exceeded() && topBookOrd[1] != null && topBookOrd[0] == null && get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i])) {
             LOGGER.info("Spread wide while quoting one side, amending order.");
             amend_orders(newPrices);
         }
@@ -589,7 +643,7 @@ class MarketMakerManager {
 
         // place new buy order, if no buy order is opened
         if (this.openBuyOrds.size() < 1 && topBookOrd[0] == null && !long_position_limit_exceeded()) {
-            JsonObject newBuy = prepare_limit_order(Settings.ORDER_SIZE, newPrices[0]);
+            JsonObject newBuy = prepare_limit_order(this.orderSize, newPrices[0]);
             orders.add(newBuy);
             LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], markPrice)));
 
@@ -606,7 +660,7 @@ class MarketMakerManager {
 
         // place new sell order, if no sell order is opened
         if (this.openSellOrds.size() < 1 && topBookOrd[1] == null && !short_position_limit_exceeded()) {
-            JsonObject newSell = prepare_limit_order(-Settings.ORDER_SIZE, newPrices[1]);
+            JsonObject newSell = prepare_limit_order(-this.orderSize, newPrices[1]);
             orders.add(newSell);
             LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], markPrice)));
 
@@ -758,18 +812,18 @@ public class MarketMaker {
 
     private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
 
-    public static void main(String[] args) throws InterruptedException {
+    public static void main(String[] args) throws InterruptedException, NotImplementedException {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
         loggingConfig();
-        LOGGER.info(String.format("Starting execution in %s with PID: %d", Settings.SYMBOL, ProcessHandle.current().pid()));
-        new MarketMakerManager(Settings.SYMBOL);
+        LOGGER.info(String.format("Starting execution in %s with PID: %d", Settings.SYMBOL[0], ProcessHandle.current().pid()));
+        new MarketMakerManager(0);
     }
 
     private static void loggingConfig() {
         Logger log = Logger.getLogger("");
         Handler fileHandler;
         try {
-            fileHandler = new FileHandler(String.format("./logs/%s.log", Settings.SYMBOL));
+            fileHandler = new FileHandler(String.format("./logs/%s.log", Settings.SYMBOL[0]));
             SimpleFormatter simple = new SimpleFormatter();
             fileHandler.setFormatter(simple);
             //adding Handler for file
