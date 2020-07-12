@@ -57,15 +57,6 @@ class ExchangeInterface {
     }
 
     /**
-     * Returns instrument data of XBT index
-     *
-     * @return Instrument object of XBT index
-     */
-    protected Instrument get_instrument_XBT_index() {
-        return this.mexRest.get_instrument(".BXBT");
-    }
-
-    /**
      * Returns tick size of contract
      *
      * @return tickSize as float
@@ -368,6 +359,8 @@ class ExchangeInterface {
 class MarketMakerManager {
     private final static long DAY_TO_MILLISECONDS = 86400000L;
     private final static long MINUTE_TO_MILLISECONDS = 60000L;
+    private final static long WEEK_TO_MILLISECONDS = MINUTE_TO_MILLISECONDS * 5;
+    //private final static long WEEK_TO_MILLISECONDS = 604800000L;
     private final static int API_REST_INTERVAL = 500;
 
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
@@ -379,6 +372,8 @@ class MarketMakerManager {
     private long sanityCheckStamp;
     // timestamp used to reset fills counter every 24 hours;
     private long fillsStamp;
+    // timestamp used to calculate order size
+    private long calcOrderSizeStamp;
     // list w/ orderIDs of open buy orders made by the algorithm
     private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
@@ -393,6 +388,7 @@ class MarketMakerManager {
         this.fillsCounter = 0L;
         this.fillsStamp = System.currentTimeMillis() + DAY_TO_MILLISECONDS;
         this.sanityCheckStamp = System.currentTimeMillis() + MINUTE_TO_MILLISECONDS;
+        this.calcOrderSizeStamp = System.currentTimeMillis() + WEEK_TO_MILLISECONDS;
         this.openBuyOrds = new ArrayList<>(2);
         this.openSellOrds = new ArrayList<>(2);
         List<List<Order>> openOrders = e.rest_get_open_orders();
@@ -411,12 +407,11 @@ class MarketMakerManager {
         run_loop();
     }
 
-    private void calc_pos_max_delta() throws NotImplementedException {
+    private void calc_pos_max_delta() throws NotImplementedException, InterruptedException {
         // instrument of contract we are quoting
         Instrument instrument = e.get_instrument_contract();
 
         float deltaMaxPos = Settings.POS_MAX_MARGIN[i] * e.get_wallet_balance() / instrument.getInitMargin() / 100f;
-        LOGGER.info(String.valueOf(deltaMaxPos));
         long orderSize;
 
         if(instrument.getQuanto()) {
@@ -431,7 +426,6 @@ class MarketMakerManager {
         this.orderSize = Math.abs(orderSize); // inverse contracts have negative multipliers
         this.maxPosition = this.orderSize* (long) Settings.POSITION_FACTOR[i];
         this.minPosition = - this.maxPosition;
-        LOGGER.info(String.valueOf(this.orderSize));
     }
 
     /**
@@ -561,20 +555,20 @@ class MarketMakerManager {
         if ((topBookOrd[0] != null && topBookOrd[1] != null) && (get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i]) &&
                 (get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i])) {
             LOGGER.info("Spread wide while quoting both sides, amending both orders.");
-            amend_orders(newPrices);
+            amend_orders_prices(newPrices);
         } else if ((short_position_limit_exceeded() && topBookOrd[0] != null && topBookOrd[1] == null && get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i]) ||
                 (long_position_limit_exceeded() && topBookOrd[1] != null && topBookOrd[0] == null && get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i])) {
             LOGGER.info("Spread wide while quoting one side, amending order.");
-            amend_orders(newPrices);
+            amend_orders_prices(newPrices);
         }
     }
 
     /**
-     * Amends order pair that is closer to midPrice with current position skew, if orders exist, otherwise does nothing
+     * Amends orders pair with new prices, if orders exist, otherwise does nothing
      *
      * @param newPrices - prices to place the orders using current skew and current position
      */
-    private void amend_orders(float[] newPrices) throws InterruptedException {
+    private void amend_orders_prices(float[] newPrices) throws InterruptedException {
         JsonArray orders = new JsonArray();
         Order[] topBookOrd = e.get_topBook_orders();
 
@@ -583,14 +577,44 @@ class MarketMakerManager {
             newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
             newBuy.addProperty("price", newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0]));
+            LOGGER.info(String.format("Amending %s order price from %f to %f", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0]));
         }
         if (topBookOrd[1] != null && topBookOrd[1].getPrice() != newPrices[1]) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", topBookOrd[1].getOrderID());
             newSell.addProperty("price", newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Amending %s order from %f to %f", topBookOrd[1].getSide(), topBookOrd[1].getPrice(), newPrices[1]));
+            LOGGER.info(String.format("Amending %s order price from %f to %f", topBookOrd[1].getSide(), topBookOrd[1].getPrice(), newPrices[1]));
+        }
+
+        if (!Settings.DRY_RUN && orders.size() > 0) {
+            print_status();
+            e.amend_order_bulk(orders);
+            // interval after http request
+            Thread.sleep(API_REST_INTERVAL);
+        }
+    }
+
+    /**
+     * Amends orders with current order quantity, if orders exist, otherwise does nothing
+     */
+    private void amend_orders_qty() throws InterruptedException {
+        JsonArray orders = new JsonArray();
+        Order[] topBookOrd = e.get_topBook_orders();
+
+        if (topBookOrd[0] != null && topBookOrd[0].getOrderQty() != this.orderSize) {
+            JsonObject newBuy = new JsonObject();
+            newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
+            newBuy.addProperty("orderQty", this.orderSize);
+            orders.add(newBuy);
+            LOGGER.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[0].getSide(), topBookOrd[0].getOrderQty(), this.orderSize));
+        }
+        if (topBookOrd[1] != null && topBookOrd[1].getOrderQty() != this.orderSize) {
+            JsonObject newSell = new JsonObject();
+            newSell.addProperty("orderID", topBookOrd[1].getOrderID());
+            newSell.addProperty("orderQty", this.orderSize);
+            orders.add(newSell);
+            LOGGER.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[1].getSide(), topBookOrd[1].getOrderQty(), this.orderSize));
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0) {
@@ -784,24 +808,31 @@ class MarketMakerManager {
         LOGGER.info("-------------------------------------------------");
     }
 
-    private void run_loop() throws InterruptedException {
+    private void run_loop() throws InterruptedException, NotImplementedException {
         while (true) {
 
             // Only updates / checks orders if websocket connection is up
             if (e.isWebsocketOpen())
                 converge_orders();
 
-            // data sanity check
             long now = System.currentTimeMillis();
-            if (now > sanityCheckStamp) {
-                sanityCheckStamp = now + MINUTE_TO_MILLISECONDS;
-                sanity_check();
-            }
-
             // reset fills counter
             if (now > fillsStamp) {
-                fillsStamp = now + DAY_TO_MILLISECONDS;
+                LOGGER.info("Resetting fills counter.");
+                fillsStamp = fillsStamp + DAY_TO_MILLISECONDS;
                 fillsCounter = 0;
+            }
+            // recalculates order size
+            if(e.isWebsocketOpen() && Settings.FLEXIBLE_ORDER_SIZE[i] && e.get_position_size() == 0L && now > calcOrderSizeStamp ) {
+                LOGGER.info("Recalculating single order quantities.");
+                calcOrderSizeStamp = calcOrderSizeStamp + WEEK_TO_MILLISECONDS;
+                calc_pos_max_delta();
+                LOGGER.info(String.format("Current single order quantity: %d", this.orderSize));
+                amend_orders_qty();
+            }
+            // data sanity check
+            if (now > sanityCheckStamp) {
+                sanityCheckStamp = sanityCheckStamp + MINUTE_TO_MILLISECONDS;
                 sanity_check();
             }
         }

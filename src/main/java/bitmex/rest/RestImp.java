@@ -192,7 +192,7 @@ public class RestImp implements Rest {
             LOGGER.warning(errLog);
             long rateLimitReset = Long.parseLong(headers.get("x-ratelimit-reset").get(0).toString());
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
-            LOGGER.warning(String.format("Ratelimit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
+            LOGGER.warning(String.format("Rate-limit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
             sleep(toSleep); //waits until attempting again.
             return api_call(verb, endpoint, data);
         } else if (status == 503) {
@@ -200,7 +200,7 @@ public class RestImp implements Rest {
             sleep(3000); //waits 3000ms until attempting again.
             return api_call(verb, endpoint, data);
         }
-        LOGGER.warning("Unhandled error reponse. \n " + response);
+        LOGGER.warning("Unhandled error response. \n " + response);
         return null;
     }
 
