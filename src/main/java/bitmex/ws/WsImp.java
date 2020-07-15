@@ -126,22 +126,18 @@ public class WsImp implements Ws {
         this.symbol = symbol;
         this.tradeBinListSize = tradeBinListSize > 0 ? tradeBinListSize : TRADE_BIN_MAX_LEN;
         // subscriptions to send to ws server
-        this.subscriptions = "\"instrument:" + symbol + "\",\"liquidation:" + symbol + "\"," +
-                "\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\"";
+        this.subscriptions = "\"instrument:" + symbol + "\",\"order:" + symbol + "\",\"position:" + symbol + "\",\"execution:" + symbol + "\",\"tradeBin1m:" + symbol + "\",\"margin:*\"";
 
         // creates data structures to store data received by ws
-        Liquidation[] liquidationData = new Liquidation[LIQ_MAX_LEN];
         Order[] orderData = new Order[ORDER_MAX_LEN];
         Execution[] executionData = new Execution[EXEC_MAX_LEN];
         TradeBin[] tradeBinData = new TradeBin[tradeBinListSize];
-        liquidationData[0] = new Liquidation();
         orderData[0] = new Order();
         executionData[0] = new Execution();
         tradeBinData[0] = new TradeBin();
 
         // initializes data in memory
         this.data.put(INSTRUMENT, new Instrument());
-        this.data.put(LIQUIDATION, liquidationData);
         this.data.put(ORDER, orderData);
         this.data.put(POSITION, new Position());
         this.data.put(EXECUTION, executionData);
@@ -280,9 +276,6 @@ public class WsImp implements Ws {
                 case "orderBookL2":
                     new Thread(() -> update_orderBookL2(obj)).start();
                     break;
-                case "liquidation":
-                    new Thread(() -> update_liquidation(obj)).start();
-                    break;
                 case "margin":
                     new Thread(() -> update_margin(obj)).start();
                     break;
@@ -381,41 +374,6 @@ public class WsImp implements Ws {
                 }
             }
             this.data.put(ORDER_BOOK_L2, orderbookData);
-        }
-    }
-
-    /**
-     * Updates data in memory after receiving an ws message with table = 'liquidation'
-     *
-     * @param obj - obj received from ws
-     */
-    private void update_liquidation(JsonObject obj) {
-        String action = obj.get("action").getAsString();
-        List<Liquidation> liquidationData = new ArrayList<>(Arrays.asList((Liquidation[]) this.data.get(LIQUIDATION)));
-        List<Liquidation> data = g.fromJson(obj.get("data"), new TypeToken<List<Liquidation>>() {
-        }.getType());
-
-        if (action.equals("update") || action.equals("insert")) {
-            for (Liquidation elem : data) {
-                if (liquidationData.size() == LIQ_MAX_LEN)
-                    liquidationData.remove(0);
-                liquidationData.add(elem);
-            }
-            this.data.put(LIQUIDATION, liquidationData.toArray(new Liquidation[0]));
-        } else if (action.equals("delete")) {
-            for (Liquidation elem : data) {
-                // orderID of object received from ws
-                String orderIDRec = elem.getOrderID();
-                for (Liquidation memData : liquidationData) {
-                    // orderID of object of data in memory
-                    String orderIDOrig = memData.getOrderID();
-                    if (orderIDRec.equals(orderIDOrig)) {
-                        liquidationData.remove(memData);
-                        break;
-                    }
-                }
-            }
-            this.data.put(LIQUIDATION, liquidationData.toArray(new Liquidation[0]));
         }
     }
 
@@ -539,11 +497,6 @@ public class WsImp implements Ws {
 
         int index = BinarySearch.binarySearchF(ids, 0, ids.length - 1, price);
         return orderbookData[index].getSize();
-    }
-
-    @Override
-    public Liquidation[] get_open_liquidation() {
-        return (Liquidation[]) this.data.get(LIQUIDATION);
     }
 
     @Override

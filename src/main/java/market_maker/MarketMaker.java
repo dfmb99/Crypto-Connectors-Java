@@ -38,6 +38,7 @@ class ExchangeInterface {
         Instrument instrument = get_instrument_contract();
         this.tickSize = instrument.getTickSize();
     }
+
     /**
      * Checks if websocket connection is open
      *
@@ -359,8 +360,7 @@ class ExchangeInterface {
 class MarketMakerManager {
     private final static long DAY_TO_MILLISECONDS = 86400000L;
     private final static long MINUTE_TO_MILLISECONDS = 60000L;
-    private final static long WEEK_TO_MILLISECONDS = MINUTE_TO_MILLISECONDS * 5;
-    //private final static long WEEK_TO_MILLISECONDS = 604800000L;
+    private final static long WEEK_TO_MILLISECONDS = 604800000L;
     private final static int API_REST_INTERVAL = 500;
 
     private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
@@ -397,7 +397,7 @@ class MarketMakerManager {
         for (Order elem : openOrders.get(1))
             this.openSellOrds.add(elem.getOrderID());
 
-        if(!Settings.FLEXIBLE_ORDER_SIZE[i]) {
+        if (!Settings.FLEXIBLE_ORDER_SIZE[i]) {
             this.orderSize = Settings.ORDER_SIZE[i];
             this.maxPosition = Settings.MAX_POSITION[i];
             this.minPosition = Settings.MIN_POSITION[i];
@@ -407,25 +407,25 @@ class MarketMakerManager {
         run_loop();
     }
 
-    private void calc_pos_max_delta() throws NotImplementedException, InterruptedException {
+    private void calc_pos_max_delta() throws NotImplementedException {
         // instrument of contract we are quoting
         Instrument instrument = e.get_instrument_contract();
 
         float deltaMaxPos = Settings.POS_MAX_MARGIN[i] * e.get_wallet_balance() / instrument.getInitMargin() / 100f;
         long orderSize;
 
-        if(instrument.getQuanto()) {
-            orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] / (instrument.getMultiplier() * instrument.getMarkPrice()) );
-        }else if(instrument.getInverse()) {
+        if (instrument.getQuanto()) {
+            orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] / (instrument.getMultiplier() * instrument.getMarkPrice()));
+        } else if (instrument.getInverse()) {
             orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] * instrument.getMarkPrice() / instrument.getMultiplier());
-        }else if(!instrument.getQuanto() && !instrument.getInverse()){
+        } else if (!instrument.getQuanto() && !instrument.getInverse()) {
             orderSize = (long) (deltaMaxPos / Settings.POSITION_FACTOR[i] / instrument.getMultiplier());
         } else
             throw new NotImplementedException(String.format("%s Contract not implemented.", Settings.SYMBOL[i]));
 
         this.orderSize = Math.abs(orderSize); // inverse contracts have negative multipliers
-        this.maxPosition = this.orderSize* (long) Settings.POSITION_FACTOR[i];
-        this.minPosition = - this.maxPosition;
+        this.maxPosition = this.orderSize * (long) Settings.POSITION_FACTOR[i];
+        this.minPosition = -this.maxPosition;
     }
 
     /**
@@ -823,7 +823,7 @@ class MarketMakerManager {
                 fillsCounter = 0;
             }
             // recalculates order size
-            if(e.isWebsocketOpen() && Settings.FLEXIBLE_ORDER_SIZE[i] && e.get_position_size() == 0L && now > calcOrderSizeStamp ) {
+            if (e.isWebsocketOpen() && Settings.FLEXIBLE_ORDER_SIZE[i] && e.get_position_size() == 0L && now > calcOrderSizeStamp) {
                 LOGGER.info("Recalculating single order quantities.");
                 calcOrderSizeStamp = calcOrderSizeStamp + WEEK_TO_MILLISECONDS;
                 calc_pos_max_delta();
@@ -843,11 +843,31 @@ public class MarketMaker {
 
     private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
 
-    public static void main(String[] args) throws InterruptedException, NotImplementedException {
+    public static void main(String[] args) throws InterruptedException {
         System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
         loggingConfig();
-        LOGGER.info(String.format("Starting execution in %s with PID: %d", Settings.SYMBOL[0], ProcessHandle.current().pid()));
-        new MarketMakerManager(0);
+        Thread[] threads = new Thread[Settings.SYMBOL.length];
+
+        for (int i = 0; i < threads.length; i++) {
+            final int index = i;
+            threads[i] = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        LOGGER.info(String.format("Starting execution in %s", Settings.SYMBOL[index]));
+                        new MarketMakerManager(index);
+                    }catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        }
+
+        for(Thread t: threads)
+            t.start();
+
+        for (Thread t: threads)
+            t.join();
     }
 
     private static void loggingConfig() {

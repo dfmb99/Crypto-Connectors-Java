@@ -9,7 +9,6 @@ public interface Ws {
     //Constants
     String INSTRUMENT = "instrument";
     String ORDER_BOOK_L2 = "orderBookL2";
-    String LIQUIDATION = "liquidation";
     String MARGIN = "margin";
     String POSITION = "position";
     String TRADE_BIN = "tradeBin1m";
@@ -21,7 +20,6 @@ public interface Ws {
     String WS_MAINNET = "wss://www.bitmex.com/realtime";
 
     // Memory maximum size settings
-    int LIQ_MAX_LEN = 100;
     int TRADE_BIN_MAX_LEN = 100;
     int EXEC_MAX_LEN = 100;
     int ORDER_MAX_LEN = 100;
@@ -48,12 +46,6 @@ public interface Ws {
      * @return Instrument data
      */
     Instrument get_instrument();
-
-    /**
-     * Returns open liquidations data
-     * @return Liquidation data
-     */
-    Liquidation[] get_open_liquidation();
 
     /**
      * Returns tradeBin1m data
