@@ -13,7 +13,7 @@ public class Settings {
     public static final String API_KEY = "_DnJPkOPL5DLemZnjhh1KQRO";
     public static final String API_SECRET = "u5-PUEPK6LMQoxF4LakHtmCD4nO_jbFfsPkeNFznTFyP4O9P";
 
-    public static final String[] SYMBOL = {"XBTUSD", "ETHUSD"};
+    public static final String[] SYMBOL = {"XBTUSD"};
 
     // Automatic order size calculation
     public static final boolean[] FLEXIBLE_ORDER_SIZE = {true, true};
@@ -30,7 +30,7 @@ public class Settings {
     public static final int[] TRADE_BIN_SIZE = {720, 720};
     public static final float[] QUOTE_SPREAD = {25f, 25f}; // realized volatility minutes to base our spread index
     public static final float[] QUOTE_SPREAD_FACTOR = {0.9f, 0.9f};
-    public static final int[] MIN_SPREAD_TICKS = {10, 10}; // Minimum spread in ticks
+    public static final float[] MIN_SPREAD_TICKS = {100f, 100f}; // Minimum spread in ticks
     public static final boolean[] POST_ONLY = {false, false};
     public static final boolean[] CHECK_POSITION_LIMITS = {true, true};
 

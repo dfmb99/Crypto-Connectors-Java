@@ -111,7 +111,7 @@ public class WsImp implements Ws {
      * @param symbol           - symbol to subscribe
      * @param tradeBinListSize - size of the list to store tradeBin data from websocket, -1 to use default values
      */
-    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol, int tradeBinListSize) {
+    public WsImp(RestImp rest, boolean testnet, String apiKey, String apiSecret, String symbol, int tradeBinListSize) throws InterruptedException {
         this.container = ContainerProvider.getWebSocketContainer();
         this.g = new Gson();
         this.rest = rest;
@@ -145,6 +145,7 @@ public class WsImp implements Ws {
         this.data.put(MARGIN, new UserMargin());
 
         this.connect();
+        this.waitForData();
     }
 
     /**
@@ -153,7 +154,6 @@ public class WsImp implements Ws {
     void connect() {
         try {
             this.container.connectToServer(this, URI.create(this.url));
-            this.waitForData();
         } catch (Exception e) {
             LOGGER.warning("Failed to connect to web socket server.");
             try {
@@ -214,8 +214,9 @@ public class WsImp implements Ws {
      * @param throwable - Error thrown
      */
     @OnError
-    public void onError(Throwable throwable) {
-        LOGGER.warning(throwable.toString());
+    public void onError(Throwable throwable) throws InterruptedException {
+        throwable.printStackTrace();
+        Thread.sleep(3000);
         this.closeSession();
     }
 

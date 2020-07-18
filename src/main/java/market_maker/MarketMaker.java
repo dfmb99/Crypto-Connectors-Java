@@ -28,7 +28,7 @@ class ExchangeInterface {
     private final String orderIDPrefix;
     private final float tickSize;
 
-    public ExchangeInterface(int settingsIndex) {
+    public ExchangeInterface(int settingsIndex) throws InterruptedException {
         this.i = settingsIndex;
         this.orderIDPrefix = Settings.ORDER_ID_PREFIX;
         this.mexRest = new RestImp(Settings.TESTNET, Settings.API_KEY, Settings.API_SECRET, this.orderIDPrefix);
@@ -499,7 +499,9 @@ class MarketMakerManager {
 
         float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
         currVolIndex = currVolIndex * (float) Math.sqrt(1f / ((float) closeArr.length / Settings.QUOTE_SPREAD[i]));
-        float minimumSpread = get_spread_abs(midPrice + (float) Settings.MIN_SPREAD_TICKS[i] * e.get_tickSize(), midPrice);
+        float minimumSpread = get_spread_abs(Settings.MIN_SPREAD_TICKS[i] * e.get_tickSize() + midPrice, midPrice);
+        System.out.println(String.format("Minium Spread: %f", minimumSpread ));
+        System.out.println(String.format("currVolIndex: %f", currVolIndex ));
 
         return Math.max(currVolIndex, minimumSpread);
     }
@@ -572,14 +574,14 @@ class MarketMakerManager {
         JsonArray orders = new JsonArray();
         Order[] topBookOrd = e.get_topBook_orders();
 
-        if (topBookOrd[0] != null && topBookOrd[0].getPrice() != newPrices[0]) {
+        if (this.openBuyOrds.size() > 0 && topBookOrd[0] != null && topBookOrd[0].getPrice() != newPrices[0]) {
             JsonObject newBuy = new JsonObject();
             newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
             newBuy.addProperty("price", newPrices[0]);
             orders.add(newBuy);
             LOGGER.info(String.format("Amending %s order price from %f to %f", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0]));
         }
-        if (topBookOrd[1] != null && topBookOrd[1].getPrice() != newPrices[1]) {
+        if (this.openSellOrds.size() > 0 && topBookOrd[1] != null && topBookOrd[1].getPrice() != newPrices[1]) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", topBookOrd[1].getOrderID());
             newSell.addProperty("price", newPrices[1]);
@@ -602,14 +604,14 @@ class MarketMakerManager {
         JsonArray orders = new JsonArray();
         Order[] topBookOrd = e.get_topBook_orders();
 
-        if (topBookOrd[0] != null && topBookOrd[0].getOrderQty() != this.orderSize) {
+        if (this.openBuyOrds.size() > 0 && topBookOrd[0] != null && topBookOrd[0].getOrderQty() != this.orderSize) {
             JsonObject newBuy = new JsonObject();
             newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
             newBuy.addProperty("orderQty", this.orderSize);
             orders.add(newBuy);
             LOGGER.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[0].getSide(), topBookOrd[0].getOrderQty(), this.orderSize));
         }
-        if (topBookOrd[1] != null && topBookOrd[1].getOrderQty() != this.orderSize) {
+        if (this.openSellOrds.size() > 0 && topBookOrd[1] != null && topBookOrd[1].getOrderQty() != this.orderSize) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", topBookOrd[1].getOrderID());
             newSell.addProperty("orderQty", this.orderSize);
@@ -850,15 +852,12 @@ public class MarketMaker {
 
         for (int i = 0; i < threads.length; i++) {
             final int index = i;
-            threads[i] = new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        LOGGER.info(String.format("Starting execution in %s", Settings.SYMBOL[index]));
-                        new MarketMakerManager(index);
-                    }catch (Exception e) {
-                        e.printStackTrace();
-                    }
+            threads[i] = new Thread(() -> {
+                try {
+                    LOGGER.info(String.format("Starting execution in %s", Settings.SYMBOL[index]));
+                    new MarketMakerManager(index);
+                }catch (Exception e) {
+                    e.printStackTrace();
                 }
             });
         }
