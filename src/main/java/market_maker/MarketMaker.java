@@ -9,16 +9,14 @@ import bitmex.rest.RestImp;
 import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
 import utils.MathCustom;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.logging.FileHandler;
-import java.util.logging.Handler;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
 
 class ExchangeInterface {
 
@@ -363,7 +361,7 @@ class MarketMakerManager {
     private final static long WEEK_TO_MILLISECONDS = 604800000L;
     private final static int API_REST_INTERVAL = 500;
 
-    private final static Logger LOGGER = Logger.getLogger(MarketMakerManager.class.getName());
+    private static final Logger logger = LogManager.getLogger(MarketMakerManager.class.getName());
     // Settings file index
     private final int i;
     private final ExchangeInterface e;
@@ -500,8 +498,6 @@ class MarketMakerManager {
         float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
         currVolIndex = currVolIndex * (float) Math.sqrt(1f / ((float) closeArr.length / Settings.QUOTE_SPREAD[i]));
         float minimumSpread = get_spread_abs(Settings.MIN_SPREAD_TICKS[i] * e.get_tickSize() + midPrice, midPrice);
-        System.out.println(String.format("Minium Spread: %f", minimumSpread ));
-        System.out.println(String.format("currVolIndex: %f", currVolIndex ));
 
         return Math.max(currVolIndex, minimumSpread);
     }
@@ -556,11 +552,11 @@ class MarketMakerManager {
         // check if quoting a wide spread, amend orders if necessary
         if ((topBookOrd[0] != null && topBookOrd[1] != null) && (get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i]) &&
                 (get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i])) {
-            LOGGER.info("Spread wide while quoting both sides, amending both orders.");
+            logger.info("Spread wide while quoting both sides, amending both orders.");
             amend_orders_prices(newPrices);
         } else if ((short_position_limit_exceeded() && topBookOrd[0] != null && topBookOrd[1] == null && get_spread_abs(topBookOrd[0].getPrice(), fairPrice) > get_spread_abs(newPrices[0], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i]) ||
                 (long_position_limit_exceeded() && topBookOrd[1] != null && topBookOrd[0] == null && get_spread_abs(topBookOrd[1].getPrice(), fairPrice) > get_spread_abs(newPrices[1], fairPrice) * Settings.SPREAD_MAINTAIN_RATIO[i])) {
-            LOGGER.info("Spread wide while quoting one side, amending order.");
+            logger.info("Spread wide while quoting one side, amending order.");
             amend_orders_prices(newPrices);
         }
     }
@@ -579,14 +575,14 @@ class MarketMakerManager {
             newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
             newBuy.addProperty("price", newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Amending %s order price from %f to %f", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0]));
+            logger.info(String.format("Amending %s order price from %f to %f", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0]));
         }
         if (this.openSellOrds.size() > 0 && topBookOrd[1] != null && topBookOrd[1].getPrice() != newPrices[1]) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", topBookOrd[1].getOrderID());
             newSell.addProperty("price", newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Amending %s order price from %f to %f", topBookOrd[1].getSide(), topBookOrd[1].getPrice(), newPrices[1]));
+            logger.info(String.format("Amending %s order price from %f to %f", topBookOrd[1].getSide(), topBookOrd[1].getPrice(), newPrices[1]));
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0) {
@@ -609,14 +605,14 @@ class MarketMakerManager {
             newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
             newBuy.addProperty("orderQty", this.orderSize);
             orders.add(newBuy);
-            LOGGER.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[0].getSide(), topBookOrd[0].getOrderQty(), this.orderSize));
+            logger.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[0].getSide(), topBookOrd[0].getOrderQty(), this.orderSize));
         }
         if (this.openSellOrds.size() > 0 && topBookOrd[1] != null && topBookOrd[1].getOrderQty() != this.orderSize) {
             JsonObject newSell = new JsonObject();
             newSell.addProperty("orderID", topBookOrd[1].getOrderID());
             newSell.addProperty("orderQty", this.orderSize);
             orders.add(newSell);
-            LOGGER.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[1].getSide(), topBookOrd[1].getOrderQty(), this.orderSize));
+            logger.info(String.format("Amending %s order quantity from %d to %d", topBookOrd[1].getSide(), topBookOrd[1].getOrderQty(), this.orderSize));
         }
 
         if (!Settings.DRY_RUN && orders.size() > 0) {
@@ -659,11 +655,11 @@ class MarketMakerManager {
         Order[] topBookOrd = e.get_topBook_orders();
 
         if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
-            LOGGER.info("Buy order filled.");
+            logger.info("Buy order filled.");
             fillsCounter++;
         }
         if (this.openSellOrds.removeIf(e::is_sell_order_filled)) {
-            LOGGER.info("Sell order filled.");
+            logger.info("Sell order filled.");
             fillsCounter++;
         }
 
@@ -671,14 +667,14 @@ class MarketMakerManager {
         if (this.openBuyOrds.size() < 1 && topBookOrd[0] == null && !long_position_limit_exceeded()) {
             JsonObject newBuy = prepare_limit_order(this.orderSize, newPrices[0]);
             orders.add(newBuy);
-            LOGGER.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], markPrice)));
+            logger.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], markPrice)));
 
             // amends current sell order if there is a sell order opened
             if (this.openSellOrds.size() > 0 && topBookOrd[1] != null && topBookOrd[1].getPrice() != newPrices[1]) {
                 JsonObject newSell = new JsonObject();
                 newSell.addProperty("orderID", topBookOrd[1].getOrderID());
                 newSell.addProperty("price", newPrices[1]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrd[1].getSide(), topBookOrd[1].getPrice(), newPrices[1], get_spread(newPrices[1], markPrice)));
+                logger.info(String.format("Amending %s order from %f to %f (%f)", topBookOrd[1].getSide(), topBookOrd[1].getPrice(), newPrices[1], get_spread(newPrices[1], markPrice)));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newSell);
             }
@@ -688,14 +684,14 @@ class MarketMakerManager {
         if (this.openSellOrds.size() < 1 && topBookOrd[1] == null && !short_position_limit_exceeded()) {
             JsonObject newSell = prepare_limit_order(-this.orderSize, newPrices[1]);
             orders.add(newSell);
-            LOGGER.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], markPrice)));
+            logger.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], markPrice)));
 
             // amends current buy order if there is a buy order opened
             if (this.openBuyOrds.size() > 0 && topBookOrd[0] != null && topBookOrd[0].getPrice() != newPrices[0]) {
                 JsonObject newBuy = new JsonObject();
                 newBuy.addProperty("orderID", topBookOrd[0].getOrderID());
                 newBuy.addProperty("price", newPrices[0]);
-                LOGGER.info(String.format("Amending %s order from %f to %f (%f)", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0], get_spread(newPrices[0], markPrice)));
+                logger.info(String.format("Amending %s order from %f to %f (%f)", topBookOrd[0].getSide(), topBookOrd[0].getPrice(), newPrices[0], get_spread(newPrices[0], markPrice)));
                 if (!Settings.DRY_RUN)
                     e.amend_order(newBuy);
             }
@@ -738,7 +734,7 @@ class MarketMakerManager {
 
         // checks how many bids on the order book
         if (numBids > 1) {
-            LOGGER.warning(String.format("%d buy orders will be canceled.", numBids - 1));
+            logger.warn(String.format("%d buy orders will be canceled.", numBids - 1));
 
             // highest buy orderID
             String highestBuyID = e.get_topBook_orders()[0].getOrderID();
@@ -751,7 +747,7 @@ class MarketMakerManager {
 
         // checks how many asks on the order book
         if (numAsks > 1) {
-            LOGGER.warning(String.format("%d ask orders will be canceled.", numAsks - 1));
+            logger.warn(String.format("%d ask orders will be canceled.", numAsks - 1));
 
             // lowest sell orderID
             String lowestSellID = e.get_topBook_orders()[1].getOrderID();
@@ -768,18 +764,18 @@ class MarketMakerManager {
         List<Order> asks = openOrders.get(1);
 
         if (bids.size() < 1 && this.openBuyOrds.size() > 0) {
-            LOGGER.info("Removing buy orders from memory. No buy order received from server.");
+            logger.info("Removing buy orders from memory. No buy order received from server.");
             this.openBuyOrds.clear();
         } else if (bids.size() > 0 && this.openBuyOrds.size() < 1) {
-            LOGGER.info("Adding buy order to memory. Buy order received from server.");
+            logger.info("Adding buy order to memory. Buy order received from server.");
             this.openBuyOrds.add(bids.get(0).getOrderID());
         }
 
         if (asks.size() < 1 && this.openSellOrds.size() > 0) {
-            LOGGER.info("Removing sell orders from memory. No sell order received from server.");
+            logger.info("Removing sell orders from memory. No sell order received from server.");
             this.openSellOrds.clear();
         } else if (asks.size() > 1 && this.openSellOrds.size() < 1) {
-            LOGGER.info("Adding sell order to memory. Sell order received from server.");
+            logger.info("Adding sell order to memory. Sell order received from server.");
             this.openSellOrds.add(asks.get(0).getOrderID());
         }
 
@@ -799,15 +795,15 @@ class MarketMakerManager {
 
     private void print_status() {
         float spreadIndex = get_spread_index();
-        LOGGER.info(String.format("Position: %d", e.get_position_size()));
-        LOGGER.info(String.format("Position entry price: %f", e.get_position_entry()));
-        LOGGER.info(String.format("Fills in the last 24h: %d", fillsCounter));
-        LOGGER.info(String.format("Margin balance: %f", e.get_margin_balance()));
-        LOGGER.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
-        LOGGER.info(String.format("Fair price: %f", e.get_mark_price()));
-        LOGGER.info(String.format("Spread index: %f", spreadIndex));
-        LOGGER.info(String.format("Skew: %f", get_position_skew(spreadIndex)));
-        LOGGER.info("-------------------------------------------------");
+        logger.info(String.format("Position: %d", e.get_position_size()));
+        logger.info(String.format("Position entry price: %f", e.get_position_entry()));
+        logger.info(String.format("Fills in the last 24h: %d", fillsCounter));
+        logger.info(String.format("Margin balance: %f", e.get_margin_balance()));
+        logger.info(String.format("Margin used: %f%%", e.get_margin_used() * 100f));
+        logger.info(String.format("Fair price: %f", e.get_mark_price()));
+        logger.info(String.format("Spread index: %f", spreadIndex));
+        logger.info(String.format("Skew: %f", get_position_skew(spreadIndex)));
+        logger.info("-------------------------------------------------");
     }
 
     private void run_loop() throws InterruptedException, NotImplementedException {
@@ -820,16 +816,16 @@ class MarketMakerManager {
             long now = System.currentTimeMillis();
             // reset fills counter
             if (now > fillsStamp) {
-                LOGGER.info("Resetting fills counter.");
+                logger.info("Resetting fills counter.");
                 fillsStamp = fillsStamp + DAY_TO_MILLISECONDS;
                 fillsCounter = 0;
             }
             // recalculates order size
             if (e.isWebsocketOpen() && Settings.FLEXIBLE_ORDER_SIZE[i] && e.get_position_size() == 0L && now > calcOrderSizeStamp) {
-                LOGGER.info("Recalculating single order quantities.");
+                logger.info("Recalculating single order quantities.");
                 calcOrderSizeStamp = calcOrderSizeStamp + WEEK_TO_MILLISECONDS;
                 calc_pos_max_delta();
-                LOGGER.info(String.format("Current single order quantity: %d", this.orderSize));
+                logger.info(String.format("Current single order quantity: %d", this.orderSize));
                 amend_orders_qty();
             }
             // data sanity check
@@ -843,21 +839,21 @@ class MarketMakerManager {
 
 public class MarketMaker {
 
-    private final static Logger LOGGER = Logger.getLogger(MarketMaker.class.getName());
+    private static final Logger logger = LogManager.getLogger(MarketMaker.class.getName());
 
     public static void main(String[] args) throws InterruptedException {
-        System.setProperty("java.util.logging.SimpleFormatter.format", "%1$tF %1$tT - %2$s %4$s: %5$s%6$s%n");
-        loggingConfig();
         Thread[] threads = new Thread[Settings.SYMBOL.length];
 
         for (int i = 0; i < threads.length; i++) {
             final int index = i;
             threads[i] = new Thread(() -> {
+                String symbol = Settings.SYMBOL[index];
+                ThreadContext.put("ROUTINGKEY", symbol);
                 try {
-                    LOGGER.info(String.format("Starting execution in %s", Settings.SYMBOL[index]));
+                    logger.info(String.format("Starting execution in %s", symbol));
                     new MarketMakerManager(index);
                 }catch (Exception e) {
-                    e.printStackTrace();
+                    logger.error(e.toString());
                 }
             });
         }
@@ -868,42 +864,4 @@ public class MarketMaker {
         for (Thread t: threads)
             t.join();
     }
-
-    private static void loggingConfig() {
-        Logger log = Logger.getLogger("");
-        Handler fileHandler;
-        try {
-            fileHandler = new FileHandler(String.format("./logs/%s.log", Settings.SYMBOL[0]));
-            SimpleFormatter simple = new SimpleFormatter();
-            fileHandler.setFormatter(simple);
-            //adding Handler for file
-            log.addHandler(fileHandler);
-        } catch (IOException e) {
-            // Do nothing
-        }
-    }
-/*
-    private static void fileWatcher() throws IOException, InterruptedException {
-        WatchService watchService
-                = FileSystems.getDefault().newWatchService();
-
-        Path path = Paths.get(System.getProperty("user.dir") + "\\src\\main\\java\\");
-
-        path.register(
-                watchService,
-                StandardWatchEventKinds.ENTRY_CREATE,
-                StandardWatchEventKinds.ENTRY_DELETE,
-                StandardWatchEventKinds.ENTRY_MODIFY);
-
-        WatchKey key;
-        while ((key = watchService.take()) != null) {
-            // prevents multiple same events
-            Thread.sleep(3000);
-            for (WatchEvent<?> event : key.pollEvents()) {
-                String fileChanged = event.context().toString();
-                LOGGER.info("Event kind:" + event.kind() + ". File affected: " + fileChanged);
-            }
-            key.reset();
-        }
-    }*/
 }

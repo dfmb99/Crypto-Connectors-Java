@@ -1,18 +1,14 @@
 package market_maker;
 
-import bitmex.data.Instrument;
-
-import java.util.logging.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class Main {
+    static final Logger logger = LogManager.getLogger(Main.class.getName());
 
-    private final static Logger LOGGER = Logger.getLogger(Main.class.getName());
 
     public static void main(String[] args) {
-       Instrument i = new Instrument();
-
-       System.out.println(i.getAskPrice());
-
+       System.out.println(System.getProperty("user.dir"));
     }
 
 }

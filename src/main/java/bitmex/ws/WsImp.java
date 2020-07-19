@@ -1,11 +1,13 @@
 package bitmex.ws;
 
 import bitmex.data.*;
-import bitmex.rest.Rest;
 import bitmex.rest.RestImp;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
 import utils.Auth;
 import utils.BinarySearch;
 import utils.TimeStamp;
@@ -16,7 +18,6 @@ import java.net.URI;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.logging.Logger;
 
 /**
  * Heartbeat thread that sends ping messages to the websocket server
@@ -76,7 +77,7 @@ class OrderAsyncThread extends Thread {
 @ClientEndpoint
 public class WsImp implements Ws {
 
-    private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
+    private static final Logger logger = LogManager.getLogger(WsImp.class.getName());
     private final WebSocketContainer container;
     private final RestImp rest;
     private final Gson g;
@@ -155,7 +156,7 @@ public class WsImp implements Ws {
         try {
             this.container.connectToServer(this, URI.create(this.url));
         } catch (Exception e) {
-            LOGGER.warning("Failed to connect to web socket server.");
+            logger.error("Failed to connect to web socket server.");
             try {
                 Thread.sleep(RETRY_PERIOD);
             } catch (InterruptedException interruptedException) {
@@ -172,7 +173,8 @@ public class WsImp implements Ws {
      */
     @OnOpen
     public void onOpen(Session userSession) {
-        LOGGER.info(String.format("Connected to: %s", this.url));
+        ThreadContext.put("ROUTINGKEY", symbol);
+        logger.info(String.format("Connected to: %s", this.url));
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
 
@@ -200,10 +202,11 @@ public class WsImp implements Ws {
      */
     @OnClose
     public void onClose(CloseReason reason) {
+        ThreadContext.put("ROUTINGKEY", symbol);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = null;
-        LOGGER.warning(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
+        logger.info(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
         this.userSession = null;
         this.connect();
     }
@@ -215,7 +218,8 @@ public class WsImp implements Ws {
      */
     @OnError
     public void onError(Throwable throwable) throws InterruptedException {
-        throwable.printStackTrace();
+        ThreadContext.put("ROUTINGKEY", symbol);
+        logger.error(throwable.toString());
         Thread.sleep(3000);
         this.closeSession();
     }
@@ -227,7 +231,7 @@ public class WsImp implements Ws {
                 this.userSession.close();
                 return true;
             } catch (IOException e) {
-                LOGGER.warning("Could not close user session.");
+                logger.error("Could not close user session.");
                 return false;
             }
         }
@@ -246,6 +250,7 @@ public class WsImp implements Ws {
      */
     @OnMessage
     public void onMessage(String message) throws InterruptedException {
+        ThreadContext.put("ROUTINGKEY", symbol);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         if (!isSessionOpen())
@@ -258,18 +263,18 @@ public class WsImp implements Ws {
 
         JsonObject obj = g.fromJson(message, JsonObject.class);
         if (obj.has("subscribe")) {
-            LOGGER.fine("Subscribed successfully to " + obj.get("subscribe"));
+            logger.debug("Subscribed successfully to " + obj.get("subscribe"));
         } else if (obj.has("status")) {
-            LOGGER.warning(obj.get("error").getAsString());
+            logger.error(obj.get("error").getAsString());
             // Rate limited
             if (obj.get("status").getAsInt() == 429) {
                 long waitTime = obj.get("meta").getAsJsonObject().get("retryAfter").getAsLong();
-                LOGGER.warning(String.format("Rate-limited, retrying on %d seconds.", waitTime));
+                logger.warn(String.format("Rate-limited, retrying on %d seconds.", waitTime));
                 Thread.sleep(waitTime * 1000);
             }
         } else if (obj.has("table")) {
             String table = obj.get("table").getAsString();
-            LOGGER.fine("Received new ws update from table: " + table);
+            logger.debug(String.format("Received WS data: %s", message));
             switch (table) {
                 case "instrument":
                     new Thread(() -> update_intrument(obj)).start();
@@ -332,7 +337,7 @@ public class WsImp implements Ws {
         synchronized (latencyLock) {
             if (latency > MAX_LATENCY && System.currentTimeMillis() > minReconnectTimeStamp) {
                 minReconnectTimeStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
-                LOGGER.warning(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), minReconnectTimeStamp));
+                logger.warn(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), minReconnectTimeStamp));
                 this.closeSession();
             }
         }

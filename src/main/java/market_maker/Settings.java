@@ -13,7 +13,7 @@ public class Settings {
     public static final String API_KEY = "_DnJPkOPL5DLemZnjhh1KQRO";
     public static final String API_SECRET = "u5-PUEPK6LMQoxF4LakHtmCD4nO_jbFfsPkeNFznTFyP4O9P";
 
-    public static final String[] SYMBOL = {"XBTUSD"};
+    public static final String[] SYMBOL = {"XBTUSD", "ETHUSD"};
 
     // Automatic order size calculation
     public static final boolean[] FLEXIBLE_ORDER_SIZE = {true, true};

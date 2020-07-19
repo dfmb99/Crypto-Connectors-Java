@@ -5,6 +5,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import utils.Auth;
@@ -21,11 +23,10 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
-import java.util.logging.Logger;
 
 public class RestImp implements Rest {
 
-    private final static Logger LOGGER = Logger.getLogger(Rest.class.getName());
+    private static final Logger logger = LogManager.getLogger(RestImp.class.getName());
 
     private final Gson g;
     private final Client client;
@@ -44,7 +45,7 @@ public class RestImp implements Rest {
      */
     public RestImp(boolean testnet, String apiKey, String apiSecret, String orderIDPrefix) {
         if (orderIDPrefix.length() > 8) {
-            LOGGER.severe("orderIDPrefix max length is 8.");
+            logger.fatal("orderIDPrefix max length is 8.");
             System.exit(1);
         }
         this.g = new Gson();
@@ -89,6 +90,7 @@ public class RestImp implements Rest {
                 .header("api-expires", expires)
                 .header("api-key", apiKey)
                 .header("api-signature", signature);
+        logger.debug(String.format("Making API request: %s", uri.toString()));
 
         boolean success = false;
         while (!success) {
@@ -113,7 +115,7 @@ public class RestImp implements Rest {
                     return api_error(status, verb, endpoint, data, r.readEntity(String.class), r.getHeaders());
 
             } catch (ProcessingException pe) { //Error in communication with server
-                LOGGER.info(String.format("Timeout occurred on %s%s. Retrying request...", verb, endpoint));
+                logger.warn(String.format("Timeout occurred on %s%s. Retrying request...", verb, endpoint));
                 try {
                     Thread.sleep(Rest.RETRY_PERIOD); //wait until attempting again.
                 } catch (InterruptedException e) {
@@ -174,33 +176,33 @@ public class RestImp implements Rest {
         //Checks response codes
         if (status == 401 || status == 403) {
             // Authentication error, forbidden
-            LOGGER.severe(errLog);
+            logger.fatal(errLog);
             System.exit(1);
         } else if (status == 400) {
             //Parameter error
-            LOGGER.warning(errLog);
+            logger.error(errLog);
             sleep(2000); //waits 2000ms
             return response;
         } else if (status == 404) {
-            LOGGER.warning(errLog);
+            logger.error(errLog);
             sleep(2000); //waits 2000ms until attempting again.
             //Order not found
             if (verb.equalsIgnoreCase("DELETE"))
                 return response;
             return api_call(verb, endpoint, data);
         } else if (status == 429) {
-            LOGGER.warning(errLog);
+            logger.error(errLog);
             long rateLimitReset = Long.parseLong(headers.get("x-ratelimit-reset").get(0).toString());
             long toSleep = rateLimitReset * 1000 - System.currentTimeMillis();
-            LOGGER.warning(String.format("Rate-limit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
+            logger.warn(String.format("Rate-limit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
             sleep(toSleep); //waits until attempting again.
             return api_call(verb, endpoint, data);
         } else if (status == 503) {
-            LOGGER.warning(errLog);
+            logger.error(errLog);
             sleep(3000); //waits 3000ms until attempting again.
             return api_call(verb, endpoint, data);
         }
-        LOGGER.warning("Unhandled error response. \n " + response);
+        logger.error("Unhandled error response. \n " + response);
         return null;
     }
 
