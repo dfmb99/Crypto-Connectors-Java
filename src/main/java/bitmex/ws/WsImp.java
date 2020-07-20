@@ -133,9 +133,6 @@ public class WsImp implements Ws {
         Order[] orderData = new Order[ORDER_MAX_LEN];
         Execution[] executionData = new Execution[EXEC_MAX_LEN];
         TradeBin[] tradeBinData = new TradeBin[tradeBinListSize];
-        orderData[0] = new Order();
-        executionData[0] = new Execution();
-        tradeBinData[0] = new TradeBin();
 
         // initializes data in memory
         this.data.put(INSTRUMENT, new Instrument());
@@ -156,6 +153,7 @@ public class WsImp implements Ws {
         try {
             this.container.connectToServer(this, URI.create(this.url));
         } catch (Exception e) {
+            ThreadContext.put("ROUTINGKEY", symbol);
             logger.error("Failed to connect to web socket server.");
             try {
                 Thread.sleep(RETRY_PERIOD);
@@ -178,16 +176,6 @@ public class WsImp implements Ws {
         this.heartbeatThread = new HeartbeatThread(this);
         this.userSession = userSession;
 
-        // gets orders for this symbol, trough http request
-        Order[] restOrders = this.get_rest_orders();
-        Collections.reverse(Arrays.asList(restOrders));
-        this.data.put(ORDER, restOrders);
-
-        // gets tradeBin data for this symbol, trough http request
-        TradeBin[] tradeBinData = this.get_rest_last_1mCandles();
-        Collections.reverse(Arrays.asList(tradeBinData));
-        this.data.put(TRADE_BIN, tradeBinData);
-
         long expires = Auth.generate_expires();
         String signature = Auth.encode_hmac(apiSecret, String.format("%s%d", "GET/realtime", expires));
         sendMessage(String.format("{\"op\": \"authKeyExpires\", \"args\": [\"%s\", %d, \"%s\"]}", apiKey, expires, signature));
@@ -201,13 +189,14 @@ public class WsImp implements Ws {
      * @param reason the reason for connection close
      */
     @OnClose
-    public void onClose(CloseReason reason) {
+    public void onClose(CloseReason reason) throws InterruptedException {
         ThreadContext.put("ROUTINGKEY", symbol);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = null;
         logger.info(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
         this.userSession = null;
+        Thread.sleep(3000);
         this.connect();
     }
 
@@ -217,10 +206,9 @@ public class WsImp implements Ws {
      * @param throwable - Error thrown
      */
     @OnError
-    public void onError(Throwable throwable) throws InterruptedException {
+    public void onError(Throwable throwable) {
         ThreadContext.put("ROUTINGKEY", symbol);
-        logger.error(throwable.toString());
-        Thread.sleep(3000);
+        logger.error("Websocket error: ", throwable);
         this.closeSession();
     }
 
@@ -231,6 +219,7 @@ public class WsImp implements Ws {
                 this.userSession.close();
                 return true;
             } catch (IOException e) {
+                ThreadContext.put("ROUTINGKEY", symbol);
                 logger.error("Could not close user session.");
                 return false;
             }
@@ -263,7 +252,19 @@ public class WsImp implements Ws {
 
         JsonObject obj = g.fromJson(message, JsonObject.class);
         if (obj.has("subscribe")) {
+            String subscription = obj.get("subscribe").getAsString();
             logger.debug("Subscribed successfully to " + obj.get("subscribe"));
+            if (subscription.contains("order")) {
+                // gets orders for this symbol, trough http request
+                Order[] restOrders = this.get_rest_orders();
+                Collections.reverse(Arrays.asList(restOrders));
+                this.data.put(ORDER, restOrders);
+            } else if (subscription.contains("tradeBin1m")) {
+                // gets tradeBin data for this symbol, trough http request
+                TradeBin[] tradeBinData = this.get_rest_last_1mCandles();
+                Collections.reverse(Arrays.asList(tradeBinData));
+                this.data.put(TRADE_BIN, tradeBinData);
+            }
         } else if (obj.has("status")) {
             logger.error(obj.get("error").getAsString());
             // Rate limited
@@ -337,6 +338,7 @@ public class WsImp implements Ws {
         synchronized (latencyLock) {
             if (latency > MAX_LATENCY && System.currentTimeMillis() > minReconnectTimeStamp) {
                 minReconnectTimeStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
+                ThreadContext.put("ROUTINGKEY", symbol);
                 logger.warn(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), minReconnectTimeStamp));
                 this.closeSession();
             }
@@ -468,24 +470,26 @@ public class WsImp implements Ws {
         List<Order> orderRec = g.fromJson(obj.get("data"), new TypeToken<List<Order>>() {
         }.getType());
 
-        if (action.equals("insert")) {
-            for (Order elem : orderRec) {
-                if (orderData.size() == ORDER_MAX_LEN)
-                    orderData.remove(0);
-                orderData.add(elem);
-            }
-            this.data.put(ORDER, orderData.toArray(new Order[0]));
-        } else if (action.equals("update")) {
+        if (orderRec.size() > 0 && action.equals("partial") || action.equals("insert") || action.equals("update")) {
+            boolean found;
             // iterates over data received
             for (Order elemRec : orderRec) {
+                found = false;
                 // iterates over orderData stored in memory/
                 for (Order elemData : orderData) {
                     // if same order (same orderID)
-                    if (elemData.equals(elemRec)) {
+                    if (elemData != null && elemData.equals(elemRec)) {
+                        found = true;
                         // updates data element
                         elemData.update(elemRec);
                         break;
                     }
+                }
+                if (!found) {
+                    // adds data element to array
+                    if (orderData.size() == ORDER_MAX_LEN)
+                        orderData.remove(0);
+                    orderData.add(elemRec);
                 }
             }
             this.data.put(ORDER, orderData.toArray(new Order[0]));
