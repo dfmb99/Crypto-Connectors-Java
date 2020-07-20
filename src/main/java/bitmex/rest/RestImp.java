@@ -233,7 +233,7 @@ public class RestImp implements Rest {
         JsonObject params = new JsonObject();
         params.addProperty("symbol", symbol);
         try {
-            return g.fromJson(api_call("GET", "/instrument", params), Instrument.class);
+            return g.fromJson(api_call("GET", "/instrument", params), Instrument[].class)[0];
         } catch (Exception e) {
             return null;
         }

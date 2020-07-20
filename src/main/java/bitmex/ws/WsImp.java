@@ -159,8 +159,8 @@ public class WsImp implements Ws {
             logger.error("Failed to connect to web socket server.");
             try {
                 Thread.sleep(RETRY_PERIOD);
-            } catch (InterruptedException interruptedException) {
-                // Do nothing
+            } catch (InterruptedException e2) {
+                //Nothing to be done here, if this happens we will just retry sooner.
             }
             this.connect();
         }
