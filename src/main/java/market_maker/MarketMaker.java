@@ -802,8 +802,8 @@ class MarketMakerManager {
             Thread.sleep(API_REST_INTERVAL);
         }
 
-        logger.debug(String.format("openBuyOrds size: %d", this.openBuyOrds));
-        logger.debug(String.format("openSellOrds size: %d", this.openSellOrds));
+        logger.debug(String.format("openBuyOrds size: %d", this.openBuyOrds.size()));
+        logger.debug(String.format("openSellOrds size: %d", this.openSellOrds.size()));
         logger.debug(String.format("rest asks size: %d", asks.size()));
         logger.debug(String.format("rest bids size: %d", bids.size()));
     }
