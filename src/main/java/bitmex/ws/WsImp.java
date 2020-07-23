@@ -189,14 +189,13 @@ public class WsImp implements Ws {
      * @param reason the reason for connection close
      */
     @OnClose
-    public void onClose(CloseReason reason) throws InterruptedException {
+    public void onClose(CloseReason reason) {
         ThreadContext.put("ROUTINGKEY", symbol);
         if (!this.heartbeatThread.isInterrupted())
             this.heartbeatThread.interrupt();
         this.heartbeatThread = null;
         logger.info(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
         this.userSession = null;
-        Thread.sleep(3000);
         this.connect();
     }
 
@@ -209,6 +208,7 @@ public class WsImp implements Ws {
     public void onError(Throwable throwable) {
         ThreadContext.put("ROUTINGKEY", symbol);
         logger.error("Websocket error: ", throwable);
+        this.closeSession();
     }
 
     @Override

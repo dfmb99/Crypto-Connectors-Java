@@ -510,7 +510,7 @@ class MarketMakerManager {
         long currPos = e.get_position_size();
         float skew = 0;
 
-        float c = (-1f + (float) Math.pow(2.4, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
+        float c = (-1f + (float) Math.pow(2, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
         if (currPos > 0)
             skew = c * -1f;
         else if (currPos < 0)
