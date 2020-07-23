@@ -27,11 +27,11 @@ public class Settings {
 
     // Market making settings
     public static final float[] SPREAD_MAINTAIN_RATIO = {1.3f, 1.3f};
-    public static final int[] TRADE_BIN_SIZE = {720, 720};
-    public static final float[] QUOTE_SPREAD = {25f, 25f}; // realized volatility minutes to base our spread index
-    public static final float[] QUOTE_SPREAD_FACTOR = {0.9f, 0.9f};
+    public static final int[] TRADE_BIN_SIZE = {480, 480};
+    public static final float[] QUOTE_SPREAD = {40f, 40f}; // realized volatility minutes to base our spread index
+    public static final float[] QUOTE_SPREAD_FACTOR = {0.8f, 0.8f};
     public static final float[] QUOTE_MIN_SPREAD = {0.002f, 0.002f}; // Minimum spread to quote (eg: 0.002 = 0.2% minium spread)
-    public static final boolean[] POST_ONLY = {false, false};
+    public static final boolean[] POST_ONLY = {true, true};
     public static final boolean[] CHECK_POSITION_LIMITS = {true, true};
 
 }

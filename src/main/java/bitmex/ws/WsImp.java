@@ -209,7 +209,6 @@ public class WsImp implements Ws {
     public void onError(Throwable throwable) {
         ThreadContext.put("ROUTINGKEY", symbol);
         logger.error("Websocket error: ", throwable);
-        this.closeSession();
     }
 
     @Override

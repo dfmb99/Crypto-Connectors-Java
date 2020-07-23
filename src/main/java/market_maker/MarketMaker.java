@@ -368,8 +368,8 @@ class MarketMakerManager {
     private long fillsCounter;
     // sanity checks are made when this timestamp is hit
     private long sanityCheckStamp;
-    // timestamp used to reset fills counter every 24 hours;
-    private long fillsStamp;
+    // timestamp of fills
+    private final List<Long> fillsStamp;
     // timestamp used to calculate order size
     private long calcOrderSizeStamp;
     // list w/ orderIDs of open buy orders made by the algorithm
@@ -384,7 +384,7 @@ class MarketMakerManager {
         this.index = settingsIndex;
         this.e = new ExchangeInterface(settingsIndex);
         this.fillsCounter = 0L;
-        this.fillsStamp = System.currentTimeMillis() + DAY_TO_MILLISECONDS;
+        this.fillsStamp = new ArrayList<>();
         this.sanityCheckStamp = System.currentTimeMillis() + MINUTE_TO_MILLISECONDS;
         this.calcOrderSizeStamp = System.currentTimeMillis() + WEEK_TO_MILLISECONDS;
         this.openBuyOrds = new ArrayList<>(2);
@@ -655,10 +655,14 @@ class MarketMakerManager {
         if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
             logger.info("Buy order filled.");
             fillsCounter++;
+            // adds current time to array
+            fillsStamp.add(System.currentTimeMillis());
         }
         if (this.openSellOrds.removeIf(e::is_sell_order_filled)) {
             logger.info("Sell order filled.");
             fillsCounter++;
+            // adds current time to array
+            fillsStamp.add(System.currentTimeMillis());
         }
 
         // place new buy order, if no buy order is opened
@@ -708,7 +712,7 @@ class MarketMakerManager {
 
                 for (Order elem : ordResp) {
                     // if order placed with success and still open add it to open orders in local memory
-                    if (elem.getOrdStatus() != null && (elem.getOrdStatus().equals("New") || elem.getOrdStatus().equals("PartiallyFilled"))) {
+                    if (elem.getOrdStatus() != null && (elem.getOrdStatus().equals("New") || elem.getOrdStatus().equals("PartiallyFilled") || elem.getOrdStatus().equals("Filled"))) {
                         if (elem.getSide().equals("Buy"))
                             this.openBuyOrds.add(elem.getOrderID());
                         else if (elem.getSide().equals("Sell"))
@@ -777,6 +781,15 @@ class MarketMakerManager {
             this.openSellOrds.add(asks.get(0).getOrderID());
         }
 
+        long now = System.currentTimeMillis();
+        for(Long timestamp: fillsStamp) {
+            if(timestamp < now - DAY_TO_MILLISECONDS) {
+                fillsStamp.remove(timestamp);
+                fillsCounter--;
+            }else
+                break;
+        }
+
         if (toCancel.size() > 0) {
             JsonObject obj = new JsonObject();
             JsonArray params = new JsonArray();
@@ -789,6 +802,10 @@ class MarketMakerManager {
             Thread.sleep(API_REST_INTERVAL);
         }
 
+        logger.debug(String.format("openBuyOrds size: %d", this.openBuyOrds));
+        logger.debug(String.format("openSellOrds size: %d", this.openSellOrds));
+        logger.debug(String.format("rest asks size: %d", asks.size()));
+        logger.debug(String.format("rest bids size: %d", bids.size()));
     }
 
     private void print_status() {
@@ -812,12 +829,6 @@ class MarketMakerManager {
                 converge_orders();
 
             long now = System.currentTimeMillis();
-            // reset fills counter
-            if (now > fillsStamp) {
-                logger.info("Resetting fills counter.");
-                fillsStamp = fillsStamp + DAY_TO_MILLISECONDS;
-                fillsCounter = 0;
-            }
             // recalculates order size
             if (e.isWebsocketOpen() && Settings.FLEXIBLE_ORDER_SIZE[index] && e.get_position_size() == 0L && now > calcOrderSizeStamp) {
                 logger.info("Recalculating single order quantities.");
