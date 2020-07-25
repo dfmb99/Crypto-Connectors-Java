@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.util.UuidUtil;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import utils.Auth;
@@ -20,9 +21,7 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
-import java.util.UUID;
 
 public class RestImp implements Rest {
 
@@ -44,10 +43,6 @@ public class RestImp implements Rest {
      * @param orderIDPrefix - every order placed will start with this ID (max 8 characters)
      */
     public RestImp(boolean testnet, String apiKey, String apiSecret, String orderIDPrefix) {
-        if (orderIDPrefix.length() > 8) {
-            logger.fatal("orderIDPrefix max length is 8.");
-            System.exit(1);
-        }
         this.g = new Gson();
         if (testnet)
             this.url = Rest.REST_TESTNET;
@@ -90,7 +85,9 @@ public class RestImp implements Rest {
                 .header("api-expires", expires)
                 .header("api-key", apiKey)
                 .header("api-signature", signature);
+
         logger.debug(String.format("Making API request: %s", uri.toString()));
+        logger.debug(String.format("API Request data: %s", data.toString()));
 
         boolean success = false;
         while (!success) {
@@ -109,11 +106,14 @@ public class RestImp implements Rest {
                 int status = r.getStatus();
                 success = true;
 
-                if (status == Response.Status.OK.getStatusCode() && r.hasEntity())
-                    return r.readEntity(String.class);
-                else if (r.hasEntity())
-                    return api_error(status, verb, endpoint, data, r.readEntity(String.class), r.getHeaders());
-
+                if (r.hasEntity()) {
+                    String srvRes = r.readEntity(String.class);
+                    logger.debug(String.format("API request response (%d): %s", status, srvRes));
+                    if(status == Response.Status.OK.getStatusCode())
+                        return srvRes;
+                    else
+                        return api_error(status, verb, endpoint, data, srvRes, r.getHeaders());
+                }
             } catch (ProcessingException pe) { //Error in communication with server
                 logger.warn(String.format("Timeout occurred on %s%s. Retrying request...", verb, endpoint));
                 try {
@@ -225,7 +225,7 @@ public class RestImp implements Rest {
      * @return new order ID
      */
     private String setNewOrderID() {
-        return orderIDPrefix + Base64.getEncoder().encodeToString((UUID.randomUUID().toString()).getBytes()).substring(0, 28);
+        return (orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 36);
     }
 
     @Override

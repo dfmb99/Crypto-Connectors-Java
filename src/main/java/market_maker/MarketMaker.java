@@ -120,15 +120,6 @@ class ExchangeInterface {
     }
 
     /**
-     * Returns mid price
-     *
-     * @return mid price
-     */
-    protected float get_mid_price() {
-        return this.mexWs.get_instrument().getMidPrice();
-    }
-
-    /**
      * Gets mark price from BitMex websocket
      */
     protected float get_mark_price() {
@@ -766,25 +757,25 @@ class MarketMakerManager {
         List<Order> asks = openOrders.get(1);
 
         if (bids.size() < 1 && this.openBuyOrds.size() > 0) {
-            logger.info("Removing buy orders from memory. No buy order received from server.");
+            logger.info("Removing buy order from memory, order not open.");
             this.openBuyOrds.clear();
         } else if (bids.size() > 0 && this.openBuyOrds.size() < 1) {
-            logger.info("Adding buy order to memory. Buy order received from server.");
+            logger.info("Adding buy order to memory, missing open order.");
             this.openBuyOrds.add(bids.get(0).getOrderID());
         }
 
         if (asks.size() < 1 && this.openSellOrds.size() > 0) {
-            logger.info("Removing sell orders from memory. No sell order received from server.");
+            logger.info("Removing sell order from memory, order not open.");
             this.openSellOrds.clear();
         } else if (asks.size() > 1 && this.openSellOrds.size() < 1) {
-            logger.info("Adding sell order to memory. Sell order received from server.");
+            logger.info("Adding sell order to memory, missing open order.");
             this.openSellOrds.add(asks.get(0).getOrderID());
         }
 
         long now = System.currentTimeMillis();
-        for(Long timestamp: fillsStamp) {
-            if(timestamp < now - DAY_TO_MILLISECONDS) {
-                fillsStamp.remove(timestamp);
+        for(int i = 0; i < fillsStamp.size(); i++) {
+            if(fillsStamp.get(i) < now - DAY_TO_MILLISECONDS) {
+                fillsStamp.remove(i);
                 fillsCounter--;
             }else
                 break;
