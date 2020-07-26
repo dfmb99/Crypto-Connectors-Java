@@ -14,7 +14,7 @@ public interface Rest {
 
     //Server configuration
     int CONNECTION_TIMEOUT = 3000;
-    int REPLY_TIMEOUT = 2000;
+    int REPLY_TIMEOUT = 3000;
     int RETRY_PERIOD = 3000;
 
     /**

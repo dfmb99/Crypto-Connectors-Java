@@ -767,7 +767,7 @@ class MarketMakerManager {
         if (asks.size() < 1 && this.openSellOrds.size() > 0) {
             logger.info("Removing sell order from memory, order not open.");
             this.openSellOrds.clear();
-        } else if (asks.size() > 1 && this.openSellOrds.size() < 1) {
+        } else if (asks.size() > 0 && this.openSellOrds.size() < 1) {
             logger.info("Adding sell order to memory, missing open order.");
             this.openSellOrds.add(asks.get(0).getOrderID());
         }
