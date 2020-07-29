@@ -253,7 +253,7 @@ public class RestImp implements Rest {
 
             return toRet.toArray(new Order[0]);
         } catch (Exception e) {
-            return null;
+            return new Order[0];
         }
     }
 
@@ -283,7 +283,7 @@ public class RestImp implements Rest {
         try {
             return g.fromJson(api_call("DELETE", "/order", data), Order[].class);
         } catch (Exception e) {
-            return null;
+            return new Order[0];
         }
     }
 
@@ -292,7 +292,7 @@ public class RestImp implements Rest {
         try {
             return g.fromJson(api_call("DELETE", "/order/all", data), Order[].class);
         } catch (Exception e) {
-            return null;
+            return new Order[0];
         }
     }
 
@@ -301,7 +301,7 @@ public class RestImp implements Rest {
         try {
             return g.fromJson(api_call("PUT", "/order/bulk", data), Order[].class);
         } catch (Exception e) {
-            return null;
+            return new Order[0];
         }
     }
 
@@ -315,7 +315,7 @@ public class RestImp implements Rest {
 
             return g.fromJson(api_call("POST", "/order/bulk", data), Order[].class);
         } catch (Exception e) {
-            return null;
+            return new Order[0];
         }
     }
 
@@ -342,7 +342,7 @@ public class RestImp implements Rest {
         try {
             return g.fromJson(api_call("GET", "/trade/bucketed", data), TradeBin[].class);
         } catch (Exception e) {
-            return null;
+            return new TradeBin[0];
         }
     }
 

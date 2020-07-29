@@ -697,9 +697,6 @@ class MarketMakerManager {
                 Order[] ordResp = e.place_order_bulk(orders);
                 // interval after http request
                 Thread.sleep(API_REST_INTERVAL);
-                // if order placement had any error
-                if (ordResp == null)
-                    return;
 
                 for (Order elem : ordResp) {
                     // if order placed with success and still open add it to open orders in local memory

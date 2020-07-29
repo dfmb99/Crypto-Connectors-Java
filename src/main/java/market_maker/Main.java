@@ -1,5 +1,6 @@
 package market_maker;
 
+import bitmex.data.Order;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.util.UuidUtil;
@@ -12,8 +13,10 @@ public class Main {
 
 
     public static void main(String[] args) {
-        System.out.println(("mmbitmex" + UuidUtil.getTimeBasedUuid().toString()).substring(0, 36));
-        System.out.println(Base64.getEncoder().encodeToString((UUID.randomUUID().toString()).getBytes()).substring(0, 28));
+        Order[] test = new Order[0];
+        for(Order o: test)
+            System.out.println(o.getOrderID());
+        System.out.println(test.length);
     }
 
 }
