@@ -723,7 +723,7 @@ class MarketMakerManager {
         int arrSize = fillsStamp.size();
 
         // if size of timestamps is bigger than x and last fill was delta increase
-        if(fillsStamp.size() > 4 && ((e.get_position_size() > Settings.ORDER_SIZE[index] && side > 0) || (e.get_position_size() < -Settings.ORDER_SIZE[index] && side < 0)) ) {
+        if(fillsStamp.size() > 20 && ((e.get_position_size() > Settings.ORDER_SIZE[index] && side > 0) || (e.get_position_size() < -Settings.ORDER_SIZE[index] && side < 0)) ) {
             long[] arr = new long[arrSize - 1];
             long sum = 0;
             for (int i = 1; i <= arr.length; i++) {
@@ -876,6 +876,8 @@ class MarketMakerManager {
                 sanityCheckStamp = sanityCheckStamp + MINUTE_TO_MILLISECONDS;
                 sanity_check();
             }
+            // FOR TESTING PURPOSES
+            Thread.sleep(5000);
         }
     }
 }
