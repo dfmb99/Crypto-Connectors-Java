@@ -1,6 +1,5 @@
 package market_maker;
 
-import Exceptions.NotImplementedException;
 import bitmex.data.Instrument;
 import bitmex.data.Order;
 import bitmex.data.TradeBin;
@@ -9,12 +8,14 @@ import bitmex.rest.RestImp;
 import bitmex.ws.WsImp;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import exceptions.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.ThreadContext;
 import utils.MathCustom;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -367,6 +368,8 @@ class MarketMakerManager {
     private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
     private final List<String> openSellOrds;
+    // added skew percentage
+    private float addedSkewPercentage;
     private long orderSize;
     private long maxPosition;
     private long minPosition;
@@ -480,9 +483,9 @@ class MarketMakerManager {
      */
     private float get_spread_index() {
         TradeBin[] tradeBinData = e.get_tradeBin1m();
-        float[] closeArr = new float[tradeBinData.length];
+        float[] closeArr = new float[tradeBinData.length - 1];
 
-        for (int i = 1; i < closeArr.length; i++)
+        for (int i = 1; i <= closeArr.length; i++)
             closeArr[i - 1] = (float) Math.log(tradeBinData[i].getClose() / tradeBinData[i - 1].getClose());
 
         float currVolIndex = (MathCustom.calculateSD(closeArr) * (float) Math.sqrt(closeArr.length));
@@ -502,6 +505,7 @@ class MarketMakerManager {
         float skew = 0;
 
         float c = (-1f + (float) Math.pow(2, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
+        c = c + c * addedSkewPercentage;
         if (currPos > 0)
             skew = c * -1f;
         else if (currPos < 0)
@@ -645,15 +649,11 @@ class MarketMakerManager {
 
         if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
             logger.info("Buy order filled.");
-            fillsCounter++;
-            // adds current time to array
-            fillsStamp.add(System.currentTimeMillis());
+            orderFilled(1);
         }
         if (this.openSellOrds.removeIf(e::is_sell_order_filled)) {
             logger.info("Sell order filled.");
-            fillsCounter++;
-            // adds current time to array
-            fillsStamp.add(System.currentTimeMillis());
+            orderFilled(-1);
         }
 
         // place new buy order, if no buy order is opened
@@ -713,6 +713,48 @@ class MarketMakerManager {
             } else
                 check_current_spread(newPrices);
         }
+    }
+
+    /**
+     * Order filled
+     * @param side 1 if buy order filled, -1 if sell order filled
+     */
+    private void orderFilled(int side) {
+        int arrSize = fillsStamp.size();
+
+        // if size of timestamps is bigger than x and last fill was delta increase
+        if(fillsStamp.size() > 4 && ((e.get_position_size() > Settings.ORDER_SIZE[index] && side > 0) || (e.get_position_size() < -Settings.ORDER_SIZE[index] && side < 0)) ) {
+            long[] arr = new long[arrSize - 1];
+            long sum = 0;
+            for (int i = 1; i <= arr.length; i++) {
+                arr[i - 1] = fillsStamp.get(i) - fillsStamp.get(i-1);
+                sum += arr[i -1];
+            }
+
+            float avg = sum / (float) arr.length;
+            float stDev = MathCustom.calculateSD(arr);
+
+            logger.debug(Arrays.toString(arr));
+            logger.debug(String.format("Average: %f", avg));
+            logger.debug(String.format("Standard Deviation: %f", stDev));
+
+            fillsCounter++;
+            fillsStamp.add(System.currentTimeMillis());
+
+            if( (avg - 2 * stDev) > (fillsStamp.get(arrSize-1) - fillsStamp.get(arrSize-2)) )
+                addedSkewPercentage = 0.4f;
+            else if( (avg - 1 * stDev) > (fillsStamp.get(arrSize-1) - fillsStamp.get(arrSize-2)) )
+                addedSkewPercentage = 0.2f;
+            else
+                addedSkewPercentage = 0f;
+        } else {
+            fillsCounter++;
+            fillsStamp.add(System.currentTimeMillis());
+            addedSkewPercentage = 0f;
+        }
+
+        logger.debug(Arrays.toString(fillsStamp.toArray()));
+        logger.debug(String.format("Added Skew Percentage: %f", addedSkewPercentage));
     }
 
     private void sanity_check() throws InterruptedException {
@@ -809,6 +851,7 @@ class MarketMakerManager {
         logger.info(String.format("Fair price: %f", e.get_mark_price()));
         logger.info(String.format("Spread index: %f", spreadIndex));
         logger.info(String.format("Skew: %f", get_position_skew(spreadIndex)));
+        logger.info(String.format("Added skew percentage: %f%%", addedSkewPercentage * 100f));
         logger.info("-------------------------------------------------");
     }
 

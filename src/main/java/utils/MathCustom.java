@@ -20,6 +20,23 @@ public class MathCustom {
         return (float) java.lang.Math.sqrt(standardDeviation /  ((float) length - 1f));
     }
 
+    public static float calculateSD(long[] numArray) {
+        float sum = 0.0f, standardDeviation = 0.0f;
+        int length = numArray.length;
+
+        for (long num : numArray) {
+            sum += num;
+        }
+
+        float mean = sum / (float) length;
+
+        for (long num : numArray) {
+            standardDeviation += (float) java.lang.Math.pow(num - mean, 2f);
+        }
+
+        return (float) java.lang.Math.sqrt(standardDeviation /  ((float) length - 1f));
+    }
+
     public static float roundToFraction(float x, float fraction) {
         return (float) Math.round(x * (1f / fraction)) / (1f / fraction);
     }
