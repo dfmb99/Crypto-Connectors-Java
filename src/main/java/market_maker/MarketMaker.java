@@ -14,10 +14,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.ThreadContext;
 import utils.MathCustom;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 class ExchangeInterface {
 
@@ -351,7 +348,7 @@ class MarketMakerManager {
     private final static long DAY_TO_MILLISECONDS = 86400000L;
     private final static long MINUTE_TO_MILLISECONDS = 60000L;
     private final static long WEEK_TO_MILLISECONDS = 604800000L;
-    private final static int API_REST_INTERVAL = 500;
+    private final static int API_REST_INTERVAL = 2000;
 
     private static final Logger logger = LogManager.getLogger(MarketMakerManager.class.getName());
     // Settings file index
@@ -416,8 +413,8 @@ class MarketMakerManager {
             throw new NotImplementedException(String.format("%s Contract not implemented.", Settings.SYMBOL[index]));
 
         this.orderSize = Math.abs(orderSize); // inverse contracts have negative multipliers
-        this.maxPosition = this.orderSize * (long) Settings.POSITION_FACTOR[index];
-        this.minPosition = -this.maxPosition;
+        this.maxPosition = Math.min(this.orderSize * (long) Settings.POSITION_FACTOR[index], Settings.MAX_POSITION[index]);
+        this.minPosition = Math.max(-this.maxPosition, Settings.MIN_POSITION[index]);
     }
 
     /**
@@ -642,10 +639,6 @@ class MarketMakerManager {
      * Checks current open orders, and replaces/places new orders if any are missing
      */
     private void converge_orders() throws InterruptedException {
-        JsonArray orders = new JsonArray();
-        float[] newPrices = get_new_order_prices();
-        float markPrice = e.get_mark_price();
-        Order[] topBookOrd = e.get_topBook_orders();
 
         if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
             logger.info("Buy order filled.");
@@ -656,8 +649,13 @@ class MarketMakerManager {
             orderFilled(-1);
         }
 
+        JsonArray orders = new JsonArray();
+        Order[] topBookOrd = e.get_topBook_orders();
+
         // place new buy order, if no buy order is opened
         if (this.openBuyOrds.size() < 1 && topBookOrd[0] == null && !long_position_limit_exceeded()) {
+            float markPrice = e.get_mark_price();
+            float[] newPrices = get_new_order_prices();
             JsonObject newBuy = prepare_limit_order(this.orderSize, newPrices[0]);
             orders.add(newBuy);
             logger.info(String.format("Creating buy order of %d contracts at %f (%f)", newBuy.get("orderQty").getAsLong(), newPrices[0], get_spread(newPrices[0], markPrice)));
@@ -675,6 +673,8 @@ class MarketMakerManager {
 
         // place new sell order, if no sell order is opened
         if (this.openSellOrds.size() < 1 && topBookOrd[1] == null && !short_position_limit_exceeded()) {
+            float markPrice = e.get_mark_price();
+            float[] newPrices = get_new_order_prices();
             JsonObject newSell = prepare_limit_order(-this.orderSize, newPrices[1]);
             orders.add(newSell);
             logger.info(String.format("Creating sell order of %d contracts at %f (%f)", newSell.get("orderQty").getAsLong(), newPrices[1], get_spread(newPrices[1], markPrice)));
@@ -711,7 +711,7 @@ class MarketMakerManager {
                     }
                 }
             } else
-                check_current_spread(newPrices);
+                check_current_spread(get_new_order_prices());
         }
     }
 
