@@ -274,7 +274,6 @@ public class WsImp implements Ws {
             }
         } else if (obj.has("table")) {
             String table = obj.get("table").getAsString();
-            logger.debug(String.format("Received WS data: %s", message));
             switch (table) {
                 case "instrument":
                     new Thread(() -> update_intrument(obj)).start();

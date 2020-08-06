@@ -19,11 +19,11 @@ public class Settings {
     public static final boolean[] FLEXIBLE_ORDER_SIZE = {true, true};
     public static final float[] POS_MAX_MARGIN = {10f, 10f}; // maximum percentage of account to be used as position margin
     public static final float[] POSITION_FACTOR = {10f, 10f}; // orderSize * positionFactor = maximumPosition / -minimumPosition
+    public static final long[] MIN_POSITION = {-1000L, 700L};
+    public static final long[] MAX_POSITION = {1000L, 700L};
 
     // Manual order size calculation
     public static final long[] ORDER_SIZE = {20L, 20L}; // single order size
-    public static final long[] MIN_POSITION = {-200L};
-    public static final long[] MAX_POSITION = {200L};
 
     // Market making settings
     public static final float[] SPREAD_MAINTAIN_RATIO = {1.3f, 1.3f};
