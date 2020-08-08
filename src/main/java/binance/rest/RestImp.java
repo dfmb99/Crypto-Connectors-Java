@@ -2,18 +2,24 @@ package binance.rest;
 
 import binance.data.ErrorAPI;
 import binance.data.MarkPrice;
+import binance.data.Order;
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.util.UuidUtil;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import org.jetbrains.annotations.NotNull;
 
 import javax.ws.rs.ProcessingException;
-import javax.ws.rs.client.*;
+import javax.ws.rs.client.Client;
+import javax.ws.rs.client.ClientBuilder;
+import javax.ws.rs.client.Invocation;
+import javax.ws.rs.client.WebTarget;
 import javax.ws.rs.core.MediaType;
-import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -29,13 +35,15 @@ public class RestImp implements Rest {
     private final Client client;
     private final String apiKey;
     private final String apiSecret;
+    private final String orderIDPrefix;
 
-    public RestImp(String url, String apiKey, String apiSecret) {
+    public RestImp(String url, String apiKey, String apiSecret, String orderIDPrefix) {
         this.g = new Gson();
         this.url = url;
         this.client = client_configuration();
         this.apiKey = apiKey;
         this.apiSecret = apiSecret;
+        this.orderIDPrefix = orderIDPrefix;
     }
 
     /**
@@ -43,61 +51,49 @@ public class RestImp implements Rest {
      * @param endpoint - endpoint on server
      * @param data     - data sent either in url ('GET') or in the body
      * @param signed   - true if request need to be signed, false otherwise
-     * @param k - type of object to return
      * @return error message if request could not be retried, or retried request response (both as String)
      */
-    private Object api_call(String verb, String endpoint, JsonObject data, boolean signed, Class<?> k) {
+    private String api_call(String verb, String endpoint, JsonObject data, boolean signed) {
         WebTarget target = client.target(url).path(endpoint);
-        if (verb.equalsIgnoreCase("GET")) {
-            for (String name : data.keySet()) {
+        for (String name : data.keySet()) {
+            String value = String.valueOf(data.get(name));
+            if(value.startsWith("["))
+                target = target
+                        .queryParam(name, URLEncoder.encode(String.valueOf(data.get(name)), StandardCharsets.UTF_8));
+            else
                 target = target
                         .queryParam(name, URLEncoder.encode(data.get(name).getAsString(), StandardCharsets.UTF_8));
-            }
         }
 
-        if(signed) {
-            if(verb.equalsIgnoreCase("GET")) {
-                target = target
-                        .queryParam("timestamp", System.currentTimeMillis());
-                target = target
-                        .queryParam("signature", URLEncoder.encode(encode_hmac(this.apiSecret, target.getUri().getQuery()), StandardCharsets.UTF_8));
-            }else {
-                data.addProperty("timestamp", System.currentTimeMillis());
-                data.addProperty("signature", encode_hmac(this.apiSecret, data.toString()));
-            }
+        if (signed) {
+            target = target
+                    .queryParam("timestamp", System.currentTimeMillis());
+            target = target
+                    .queryParam("signature", URLEncoder.encode(encode_hmac(this.apiSecret, target.getUri().getRawQuery()), StandardCharsets.UTF_8));
         }
 
         Invocation.Builder httpReq = target.request()
                 .accept(MediaType.APPLICATION_JSON)
-                .header("content-type", "application/json; charset=utf-8")
+                .header("X-MBX-APIKEY", this.apiKey)
+                .header("content-type", "application/json;charset=utf-8")
                 .header("connection", "keep-alive");
 
         logger.debug(String.format("Making API request: %s", target.getUri().toString()));
-        if(!verb.equalsIgnoreCase("GET"))
-            logger.debug(String.format("API Request data: %s", data.toString()));
 
         boolean success = false;
         while (!success) {
             try {
-                Response r = null;
-                if (verb.equalsIgnoreCase("GET"))
-                    r = httpReq.get();
-                else if (verb.equalsIgnoreCase("POST"))
-                    r = httpReq.post(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
-                else if (verb.equalsIgnoreCase("PUT"))
-                    r = httpReq.put(Entity.entity(data.toString(), MediaType.APPLICATION_JSON));
-                else if (verb.equalsIgnoreCase("DELETE"))
-                    r = httpReq.build("DELETE", Entity.entity(data.toString(), MediaType.APPLICATION_JSON)).invoke();
+                Response r = httpReq.build(verb).invoke();
 
                 assert r != null;
                 int status = r.getStatus();
                 success = true;
 
                 if (r.hasEntity()) {
-                    if(status == Response.Status.OK.getStatusCode())
-                        return g.fromJson(r.readEntity(String.class), k);
+                    if (status == Response.Status.OK.getStatusCode())
+                        return r.readEntity(String.class);
                     else
-                        return api_error(status, verb, endpoint, data, r.readEntity(ErrorAPI.class), signed, k, r.getHeaders());
+                        return api_error(status, g.fromJson(r.readEntity(String.class), ErrorAPI.class));
                 }
             } catch (ProcessingException pe) { //Error in communication with server
                 logger.warn(String.format("Timeout occurred on %s%s. Retrying request...", verb, endpoint));
@@ -111,8 +107,26 @@ public class RestImp implements Rest {
         return null;
     }
 
-    private Object api_error(int status, String verb, String endpoint, JsonObject data, ErrorAPI errObj, boolean signed, Class<?> k, MultivaluedMap<String, Object> headers) {
-        return "";
+    private String api_error(int status, ErrorAPI errObj) {
+        logger.warn(String.format("API error, code (%d) %s", errObj.getCode(), errObj.getMsg()));
+        try {
+            if (status == 429) {
+                Thread.sleep(5000);
+            } else if (status == 418)
+                Thread.sleep(60000);
+        } catch (InterruptedException e) {
+            // Do nothing
+        }
+        return null;
+    }
+
+    /**
+     * Returns new order ID with the given prefix
+     *
+     * @return new order ID
+     */
+    private String set_new_orderID() {
+        return (this.orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 24);
     }
 
     /**
@@ -126,24 +140,62 @@ public class RestImp implements Rest {
         config.property(ClientProperties.CONNECT_TIMEOUT, Rest.CONNECTION_TIMEOUT);
         //How much time to wait for the reply of the server after sending the request
         config.property(ClientProperties.READ_TIMEOUT, Rest.REPLY_TIMEOUT);
-        //Property to allow to post body data in a 'DELETE' request, otherwise an exception is thrown
-        config.property(ClientProperties.SUPPRESS_HTTP_COMPLIANCE_VALIDATION, true);
-        //Suppress warnings for payloads with DELETE calls:
-        java.util.logging.Logger.getLogger("org.glassfish.jersey.client").setLevel(java.util.logging.Level.SEVERE);
         //Allow changing http headers, before a request
         System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
         return ClientBuilder.newClient(config);
     }
 
     @Override
-    public MarkPrice get_mark_price(@NotNull String symbol) {
+    public MarkPrice get_mark_price(String symbol) {
         try {
             JsonObject params = new JsonObject();
             params.addProperty("symbol", symbol);
-            return (MarkPrice) api_call("GET", "/fapi/v1/premiumIndex", params, false, MarkPrice.class);
+            return g.fromJson(api_call("GET", "/fapi/v1/premiumIndex", params, false), MarkPrice.class);
         } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
+    }
+
+    @Override
+    public JsonArray get_klines(JsonObject params) {
+        try {
+            return g.fromJson(api_call("GET", "/fapi/v1/klines", params, false), JsonArray.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order place_order(JsonObject params) {
+        try {
+            params.addProperty("newClientOrderId", set_new_orderID());
+            return g.fromJson(api_call("POST", "/fapi/v1/order", params, true), Order.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order[] place_batched_orders(JsonArray batchOrders) {
+        try {
+            JsonObject params = new JsonObject();
+            for(JsonElement e: batchOrders)
+                e.getAsJsonObject().addProperty("newClientOrderId", set_new_orderID());
+            params.add("batchOrders", batchOrders);
+            return g.fromJson(api_call("POST", "/fapi/v1/batchOrders", params, true), Order[].class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public void change_position_mode(@NotNull String dualSidePosition) {
+        JsonObject params = new JsonObject();
+        params.addProperty("dualSidePosition", dualSidePosition);
+        api_call("POST", "/fapi/v1/positionSide/dual", params, true);
     }
 }

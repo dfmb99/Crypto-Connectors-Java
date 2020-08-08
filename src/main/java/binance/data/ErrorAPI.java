@@ -2,13 +2,13 @@ package binance.data;
 
 public class ErrorAPI {
     private Long code;
-    private Long msg;
+    private String msg;
 
     public Long getCode() {
         return code;
     }
 
-    public Long getMsg() {
+    public String getMsg() {
         return msg;
     }
 }

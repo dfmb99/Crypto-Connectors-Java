@@ -225,7 +225,7 @@ public class RestImp implements Rest {
      * @return new order ID
      */
     private String setNewOrderID() {
-        return (orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 36);
+        return (orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 2);
     }
 
     @Override
