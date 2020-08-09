@@ -1,9 +1,9 @@
 package binance.data;
 
 public class Order {
-    private String clientOrderId, side, positionSide, statues, symbol, timeInForce, type, origType, workingType;
-    private Long cumQty, cumQuote, executedQty, orderId, origQty, updateTime;
-    private Float avgPrice, price, stopPrice, activatePrice,priceRate;
+    private String clientOrderId, side, positionSide, status, symbol, timeInForce, type, origType, workingType;
+    private Long orderId, updateTime;
+    private Float cumQty, executedQty, origQty, cumQuote, avgPrice, price, stopPrice, activatePrice, priceRate;
     private Boolean reduceOnly, closePosition;
 
     public String getClientOrderId() {
@@ -18,8 +18,8 @@ public class Order {
         return positionSide;
     }
 
-    public String getStatues() {
-        return statues;
+    public String getStatus() {
+        return status;
     }
 
     public String getSymbol() {
@@ -42,15 +42,15 @@ public class Order {
         return workingType;
     }
 
-    public Long getCumQty() {
+    public Float getCumQty() {
         return cumQty;
     }
 
-    public Long getCumQuote() {
+    public Float getCumQuote() {
         return cumQuote;
     }
 
-    public Long getExecutedQty() {
+    public Float getExecutedQty() {
         return executedQty;
     }
 
@@ -58,7 +58,7 @@ public class Order {
         return orderId;
     }
 
-    public Long getOrigQty() {
+    public Float getOrigQty() {
         return origQty;
     }
 

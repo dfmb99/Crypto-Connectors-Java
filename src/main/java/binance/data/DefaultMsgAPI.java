@@ -1,6 +1,6 @@
 package binance.data;
 
-public class ErrorAPI {
+public class DefaultMsgAPI {
     private Long code;
     private String msg;
 

@@ -1,15 +1,12 @@
 package binance.rest;
 
-import binance.data.ErrorAPI;
-import binance.data.MarkPrice;
-import binance.data.Order;
+import binance.data.*;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.core.util.UuidUtil;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import org.jetbrains.annotations.NotNull;
@@ -23,6 +20,7 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 import static utils.Auth.encode_hmac;
 
@@ -90,10 +88,12 @@ public class RestImp implements Rest {
                 success = true;
 
                 if (r.hasEntity()) {
-                    if (status == Response.Status.OK.getStatusCode())
-                        return r.readEntity(String.class);
-                    else
-                        return api_error(status, g.fromJson(r.readEntity(String.class), ErrorAPI.class));
+                    if (status == Response.Status.OK.getStatusCode()) {
+                        String srvResponse = r.readEntity(String.class);
+                        logger.debug(srvResponse);
+                        return srvResponse;
+                    }else
+                        return api_error(status, g.fromJson(r.readEntity(String.class), DefaultMsgAPI.class));
                 }
             } catch (ProcessingException pe) { //Error in communication with server
                 logger.warn(String.format("Timeout occurred on %s%s. Retrying request...", verb, endpoint));
@@ -107,7 +107,7 @@ public class RestImp implements Rest {
         return null;
     }
 
-    private String api_error(int status, ErrorAPI errObj) {
+    private String api_error(int status, DefaultMsgAPI errObj) {
         logger.warn(String.format("API error, code (%d) %s", errObj.getCode(), errObj.getMsg()));
         try {
             if (status == 429) {
@@ -126,7 +126,7 @@ public class RestImp implements Rest {
      * @return new order ID
      */
     private String set_new_orderID() {
-        return (this.orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 24);
+        return (this.orderIDPrefix + UUID.randomUUID()).substring(0, 28);
     }
 
     /**
@@ -193,9 +193,118 @@ public class RestImp implements Rest {
     }
 
     @Override
-    public void change_position_mode(@NotNull String dualSidePosition) {
+    public Order query_order(JsonObject params) {
+        try {
+            return g.fromJson(api_call("GET", "/fapi/v1/order", params, true), Order.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order cancel_order(JsonObject params) {
+        try {
+            return g.fromJson(api_call("DELETE", "/fapi/v1/order", params, true), Order.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order cancel_all_orders(String symbol) {
+        try {
+            JsonObject params = new JsonObject();
+            params.addProperty("symbol", symbol);
+            return g.fromJson(api_call("DELETE", "/fapi/v1/allOpenOrders", params, true), Order.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order[] cancel_multiple_orders(JsonObject params) {
+        try {
+            return g.fromJson(api_call("DELETE", "/fapi/v1/batchOrders", params, true), Order[].class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order[] auto_cancel_all_orders(@NotNull String symbol, long countdownTime) {
+        try {
+            JsonObject params = new JsonObject();
+            params.addProperty("symbol", symbol);
+            params.addProperty("countdownTime", countdownTime);
+            return g.fromJson(api_call("POST", "/fapi/v1/countdownCancelAll", params, true), Order[].class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public Order[] query_all_open_order(@NotNull String symbol) {
+        try {
+            JsonObject params = new JsonObject();
+            params.addProperty("symbol", symbol);
+            return g.fromJson(api_call("GET", "/fapi/v1/openOrders", params, true), Order[].class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public AccountBalance[] futures_account_balance() {
+        try {
+            return g.fromJson(api_call("GET", "/fapi/v2/balance", new JsonObject(), true), AccountBalance[].class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public boolean change_margin_type(@NotNull String symbol, @NotNull String marginType) {
+        try {
+            JsonObject params = new JsonObject();
+            params.addProperty("symbol", symbol);
+            params.addProperty("marginType", marginType);
+
+            DefaultMsgAPI resp = g.fromJson(api_call("POST", "/fapi/v1/marginType", params, true), DefaultMsgAPI.class);
+            if(resp.getCode() == 200 && resp.getMsg().equalsIgnoreCase("sucess"))
+                return true;
+            else
+                return false;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    public boolean change_position_mode(@NotNull String dualSidePosition) {
         JsonObject params = new JsonObject();
         params.addProperty("dualSidePosition", dualSidePosition);
-        api_call("POST", "/fapi/v1/positionSide/dual", params, true);
+        DefaultMsgAPI resp = g.fromJson(api_call("POST", "/fapi/v1/positionSide/dual", params, true), DefaultMsgAPI.class);
+        if(resp.getCode() == 200 && resp.getMsg().equalsIgnoreCase("sucess"))
+            return true;
+        else
+            return false;
+    }
+
+    @Override
+    public Income[] get_income_history(@NotNull JsonObject params) {
+        try {
+            return g.fromJson(api_call("GET", "/fapi/v1/income", params, true), Income[].class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 }
