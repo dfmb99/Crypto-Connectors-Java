@@ -7,7 +7,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.core.util.UuidUtil;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import utils.Auth;
@@ -22,6 +21,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class RestImp implements Rest {
 
@@ -225,7 +225,7 @@ public class RestImp implements Rest {
      * @return new order ID
      */
     private String setNewOrderID() {
-        return (orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 2);
+        return (this.orderIDPrefix + UUID.randomUUID()).substring(0, 28);
     }
 
     @Override

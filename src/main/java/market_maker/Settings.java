@@ -18,9 +18,11 @@ public class Settings {
     // Automatic order size calculation
     public static final boolean[] FLEXIBLE_ORDER_SIZE = {true, true};
     public static final float[] POS_MAX_MARGIN = {10f, 10f}; // maximum percentage of account to be used as position margin
-    public static final float[] POSITION_FACTOR = {10f, 10f}; // orderSize * positionFactor = maximumPosition / -minimumPosition
-    public static final long[] MIN_POSITION = {-1000L, 700L};
+    public static final float[] POSITION_FACTOR = {8f, 8f}; // orderSize * positionFactor = maximumPosition / -minimumPosition
+    public static final long[] MIN_POSITION = {-1000L, -700L};
     public static final long[] MAX_POSITION = {1000L, 700L};
+    // maxPosition = Math.min(this.orderSize * Settings.POSITION_FACTOR, Settings.MAX_POSITION);
+    // minPosition = Math.max(maxPosition, Settings.MIN_POSITION);
 
     // Manual order size calculation
     public static final long[] ORDER_SIZE = {20L, 20L}; // single order size
