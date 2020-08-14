@@ -638,11 +638,17 @@ class MarketMakerManager {
      */
     private void converge_orders() throws InterruptedException {
 
-        if (this.openBuyOrds.removeIf(e::is_buy_order_filled))
+        if (this.openBuyOrds.removeIf(e::is_buy_order_filled)){
             logger.info("Buy order filled.");
+            fillsCounter++;
+            fillsStamp.add(System.currentTimeMillis());
+        }
 
-        if (this.openSellOrds.removeIf(e::is_sell_order_filled))
+        if (this.openSellOrds.removeIf(e::is_sell_order_filled)) {
             logger.info("Sell order filled.");
+            fillsCounter++;
+            fillsStamp.add(System.currentTimeMillis());
+        }
 
         JsonArray orders = new JsonArray();
         Order[] topBookOrd = e.get_topBook_orders();
