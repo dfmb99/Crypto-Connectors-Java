@@ -1,8 +1,6 @@
 package binance.ws;
 
-import binance.data.WsAggTrade;
-import binance.data.WsData;
-import binance.data.WsMarkPrice;
+import binance.data.*;
 import binance.rest.RestImp;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -153,19 +151,20 @@ public class MarketStreamImp implements MarketStream {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private void update_liquidation(JsonObject data) {
-        @SuppressWarnings("unchecked")
-        List<JsonObject> oldLiquidation = (List<JsonObject>) wsData.get(LIQUIDATION);
+        WsLiquidationRec newLiquidation = g.fromJson(data.toString(), WsLiquidationRec.class);
+        List<WsLiquidationData> oldLiquidation = (List<WsLiquidationData>) wsData.get(LIQUIDATION);
         if(oldLiquidation != null) {
             int size = oldLiquidation.size();
             if(size == MAX_LEN_LIQUIDATION)
                 oldLiquidation.remove(0);
-            oldLiquidation.add(data);
+            oldLiquidation.add(newLiquidation.getLiquidationData());
             wsData.put(LIQUIDATION, oldLiquidation);
         } else {
-            List<JsonObject> newLiquidation = new ArrayList<>(MAX_LEN_LIQUIDATION);
-            newLiquidation.add(data);
-            wsData.put(LIQUIDATION, newLiquidation);
+            List<WsLiquidationData> newLiquidationList = new ArrayList<>(MAX_LEN_LIQUIDATION);
+            newLiquidationList.add(newLiquidation.getLiquidationData());
+            wsData.put(LIQUIDATION, newLiquidationList);
         }
     }
 
@@ -186,8 +185,8 @@ public class MarketStreamImp implements MarketStream {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private void update_aggTrade(JsonObject data) {
-        @SuppressWarnings("unchecked")
         List<WsAggTrade> oldAggTrade = (List<WsAggTrade>) wsData.get(AGG_TRADE);
         WsAggTrade newAggTrade = g.fromJson(data.toString(), WsAggTrade.class);
         if(oldAggTrade != null) {
@@ -203,32 +202,33 @@ public class MarketStreamImp implements MarketStream {
         }
     }
 
+    @SuppressWarnings("unchecked")
     private void update_kline(JsonObject data) {
-        @SuppressWarnings("unchecked")
-        List<JsonObject> oldKline = (List<JsonObject>) wsData.get(KLINE_1M);
+        WsKlineRec newKline = g.fromJson(data.toString(), WsKlineRec.class);
+        List<WsKlineData> oldKline = (List<WsKlineData>) wsData.get(KLINE_1M);
         if(oldKline != null) {
             int size = oldKline.size();
             if(size == MAX_LEN_KLINE)
                 oldKline.remove(0);
-            oldKline.add(data);
+            oldKline.add(newKline.getKline());
             wsData.put(KLINE_1M, oldKline);
         } else {
-            List<JsonObject> newKline = new ArrayList<>(MAX_LEN_KLINE);
-            newKline.add(data);
-            wsData.put(KLINE_1M, newKline);
+            List<WsKlineData> newKlineList = new ArrayList<>(MAX_LEN_KLINE);
+            newKlineList.add(newKline.getKline());
+            wsData.put(KLINE_1M, newKlineList);
         }
     }
 
     private void update_miniTicker(JsonObject data) {
-        JsonObject oldMiniTicker = (JsonObject) wsData.get(MINI_TICKER);
-        long newTimestamp = data.get("E").getAsLong();
-        //check_latency(newTimestamp);
+        WsMiniTicker newMiniTicker = g.fromJson(data.toString(), WsMiniTicker.class);
+        WsMiniTicker oldMiniTicker = (WsMiniTicker) wsData.get(MINI_TICKER);
+        long newTimestamp = newMiniTicker.getEventTime();
         if(oldMiniTicker != null) {
-            long oldTimestamp = oldMiniTicker.get("E").getAsLong();
+            long oldTimestamp = oldMiniTicker.getEventTime();
             if(newTimestamp > oldTimestamp)
-                wsData.put(MINI_TICKER, data);
+                wsData.put(MINI_TICKER, newMiniTicker);
         } else
-            wsData.put(MINI_TICKER, data);
+            wsData.put(MINI_TICKER, newMiniTicker);
     }
 
     /**
