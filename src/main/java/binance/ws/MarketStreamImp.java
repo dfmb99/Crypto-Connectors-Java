@@ -1,7 +1,6 @@
 package binance.ws;
 
 import binance.data.*;
-import binance.rest.RestImp;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
@@ -20,7 +19,6 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MarketStreamImp implements MarketStream {
     private static final Logger logger = LogManager.getLogger(MarketStreamImp.class.getName());
     private final WebSocketContainer container;
-    private final RestImp rest;
     private final Gson g;
     private Session userSession;
     private final String url;
@@ -35,19 +33,15 @@ public class MarketStreamImp implements MarketStream {
     // data structure to store ws data
     private final Map<String, Object> wsData;
 
-    private int debugcounter = 0;
-
     /**
-     * Binance web socket client implementation for one symbol
+     * Binance web socket client implementation
      *
-     * @param rest             - binance rest api object
      * @param url              - true if we want to connect to testnet, false otherwise
      * @param symbol           - symbol to subscribe
      */
-    public MarketStreamImp(RestImp rest, String url, String symbol) throws InterruptedException {
+    public MarketStreamImp(String url, String symbol) throws InterruptedException {
         this.container = ContainerProvider.getWebSocketContainer();
         this.g = new Gson();
-        this.rest = rest;
         this.url = url;
         this.subscriptions = String.format("/stream?streams=%s@aggTrade/%s@markPrice/%s@kline_1m/%s@miniTicker/%s@forceOrder", symbol, symbol, symbol, symbol, symbol);
         this.userSession = null;
@@ -121,7 +115,6 @@ public class MarketStreamImp implements MarketStream {
      */
     @OnMessage
     public void onMessage(String message) {
-        debugcounter++;
         ThreadContext.put("ROUTINGKEY", symbol);
         if (!isSessionOpen())
             return;

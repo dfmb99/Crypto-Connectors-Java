@@ -307,4 +307,34 @@ public class RestImp implements Rest {
             return null;
         }
     }
+
+    @Override
+    public ListenKey start_user_stream() {
+        try {
+            return g.fromJson(api_call("POST", "/fapi/v1/listenKey", new JsonObject(), true), ListenKey.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public JsonObject keep_alive_user_stream() {
+        try {
+            return g.fromJson(api_call("PUT", "/fapi/v1/listenKey", new JsonObject(), true), JsonObject.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public JsonObject close_user_stream() {
+        try {
+            return g.fromJson(api_call("DELETE", "/fapi/v1/listenKey", new JsonObject(), true), JsonObject.class);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }

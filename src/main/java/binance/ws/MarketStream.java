@@ -49,11 +49,9 @@ public interface MarketStream {
     float get_funding_rate();
 
     /**
-     * Retruns timestamp of next funding period
+     * Returns timestamp of next funding period
      * @return timestamp of next funding rate
      */
     long get_next_funding_period();
-
-
 
 }

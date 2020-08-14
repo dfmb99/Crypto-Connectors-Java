@@ -1,9 +1,6 @@
 package binance.rest;
 
-import binance.data.AccountBalance;
-import binance.data.Income;
-import binance.data.MarkPrice;
-import binance.data.Order;
+import binance.data.*;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.jetbrains.annotations.NotNull;
@@ -181,4 +178,22 @@ public interface Rest {
      * @return rest response, null if error
      */
     Income[] get_income_history(@NotNull JsonObject params);
+
+    /**
+     * Start a new user data stream. The stream will close after 60 minutes unless a keepalive is sent. If the account has an active listenKey, that listenKey will be returned and its validity will be extended for 60 minutes.
+     * @return ListenKey obj
+     */
+    ListenKey start_user_stream();
+
+    /**
+     * Keepalive a user data stream to prevent a time out. User data streams will close after 60 minutes. It's recommended to send a ping about every 60 minutes.
+     * @return empty JsonObject if success, null otherwise
+     */
+    JsonObject keep_alive_user_stream();
+
+    /**
+     * Close out a user data stream.
+     * @return empty JsonObject if success, null otherwise
+     */
+    JsonObject close_user_stream();
 }
