@@ -11,15 +11,14 @@ public interface UserStream {
     int FORCE_RECONNECT_INTERVAL = 60000;
 
     //Streams
-    String KLINE_1M = "kline_1m";
-    String MINI_TICKER = "miniTicker";
-    String AGG_TRADE = "aggTrade";
-    String MARK_PRICE = "markPrice";
-    String LIQUIDATION = "forcedOrder";
+    String LISTEN_KEY_EXPIRED = "listenKeyExpired";
+    String MARGIN_CALL = "MARGIN_CALL";
+    String ACCOUNT_UPDATE = "ACCOUNT_UPDATE";
+    String ORDER_TRADE_UPDATE = "ORDER_TRADE_UPDATE";
 
-    int MAX_LEN_KLINE = 100;
-    int MAX_LEN_AGG_TRADE = 100;
-    int MAX_LEN_LIQUIDATION = 100;
+    int MAX_LEN_MARGIN_CALL = 100;
+    int MAX_LEN_ACCOUNT = 100;
+    int MAX_LEN_ORDER = 100;
 
     //Server configuration
     int RETRY_PERIOD = 5000;
@@ -36,22 +35,6 @@ public interface UserStream {
      */
     boolean closeSession();
 
-    /**
-     * Gets mark price of contract
-     * @return markPrice
-     */
-    float get_mark_price();
 
-    /**
-     * Gets funding rate of contract
-     * @return funding rate
-     */
-    float get_funding_rate();
-
-    /**
-     * Returns timestamp of next funding period
-     * @return timestamp of next funding rate
-     */
-    long get_next_funding_period();
 
 }

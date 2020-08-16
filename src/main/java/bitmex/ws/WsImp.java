@@ -276,7 +276,7 @@ public class WsImp implements Ws {
             String table = obj.get("table").getAsString();
             switch (table) {
                 case "instrument":
-                    new Thread(() -> update_intrument(obj)).start();
+                    new Thread(() -> update_instrument(obj)).start();
                     break;
                 case "orderBookL2":
                     new Thread(() -> update_orderBookL2(obj)).start();
@@ -306,7 +306,7 @@ public class WsImp implements Ws {
      *
      * @param obj - obj received from web socket
      */
-    private void update_intrument(JsonObject obj) {
+    private void update_instrument(JsonObject obj) {
         String action = obj.get("action").getAsString();
         Instrument[] instrumentNewData = g.fromJson(obj.get("data"), Instrument[].class);
 

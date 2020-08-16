@@ -1,28 +1,31 @@
 package binance.ws;
 
+import binance.data.WsBalancePosition;
+import binance.data.WsUserData;
 import binance.rest.RestImp;
 import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.ThreadContext;
+import utils.Tuple;
 
 import javax.websocket.*;
+import java.io.IOException;
 import java.net.URI;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static binance.ws.UserStream.RETRY_PERIOD;
 
 @ClientEndpoint
-public class UserStreamImp {
+public class UserStreamImp implements UserStream{
     private static final Logger logger = LogManager.getLogger(UserStream.class.getName());
     private final WebSocketContainer container;
     private final Gson g;
     private final RestImp rest;
     private Session userSession;
     private final String url;
+    private String listenKey;
     private final String symbol;
-    private final String listenKey;
     // minimum timestamp to check latency on instrument update
     private long minReconnectTimeStamp;
     // check latency sync lock
@@ -30,7 +33,7 @@ public class UserStreamImp {
     // wait / notification mechanism to wait for updates before allowing methods to be executed
     private final Object wsDataUpdate = "Web socket data update";
     // data structure to store ws data
-    private final Map<String, Object> wsData;
+    private final Map<String, Tuple> wsData;
     /**
      * Binance web socket client implementation
      *
@@ -115,6 +118,82 @@ public class UserStreamImp {
     @OnMessage
     public void onMessage(String message) {
         ThreadContext.put("ROUTINGKEY", symbol);
+        logger.debug(message);
+
+        WsUserData dataRec = g.fromJson(message, WsUserData.class);
+        switch (dataRec.getEventType()) {
+            case LISTEN_KEY_EXPIRED:
+                this.listenKey = rest.start_user_stream().getListenKey();
+                break;
+            case MARGIN_CALL:
+                new Thread(() -> update_marginCall(message) ).start();
+                break;
+            case ACCOUNT_UPDATE:
+                new Thread(() -> update_account(message) ).start();
+                break;
+            case ORDER_TRADE_UPDATE:
+                new Thread(() -> update_order(message) ).start();
+                break;
+        }
+    }
+
+    private void update_marginCall(String data) {
+    }
+
+    private void update_account(String data) {
+        WsBalancePosition d = g.fromJson(data, WsBalancePosition.class);
+        System.out.println(d.getBalancePositionData().getPositions()[0].getSymbol());
+    }
+
+    private void update_order(String data) {
+
+    }
+
+    /**
+     * Checks latency on a websocket instrument update
+     *
+     * @param timestamp - timestamp of last update
+     */
+    private void check_latency(Long timestamp) {
+        long latency = System.currentTimeMillis() - timestamp;
+        synchronized (latencyLock) {
+            if (latency > MAX_LATENCY && System.currentTimeMillis() > minReconnectTimeStamp) {
+                minReconnectTimeStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
+                ThreadContext.put("ROUTINGKEY", symbol);
+                logger.warn(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), minReconnectTimeStamp));
+                this.closeSession();
+            }
+        }
+    }
+
+    @Override
+    public boolean isSessionOpen() {
+        return this.userSession != null;
+    }
+
+    @Override
+    public boolean closeSession() {
+        if (isSessionOpen()) {
+            try {
+                this.userSession.close();
+                return true;
+            } catch (IOException e) {
+                ThreadContext.put("ROUTINGKEY", symbol);
+                logger.error("Could not close user session.");
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Send a message.
+     *
+     * @param message - message to be sent
+     */
+    protected void sendMessage(String message) {
+        if (isSessionOpen())
+            this.userSession.getAsyncRemote().sendText(message);
     }
 
     /**
