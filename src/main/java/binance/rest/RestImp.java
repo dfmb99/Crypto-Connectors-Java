@@ -114,7 +114,7 @@ public class RestImp implements Rest {
                 Thread.sleep(5000);
             } else if (status == 418) {
                 Thread.sleep(60000);
-            } else if (status == 503) {
+            } else if (String.valueOf(status).startsWith("5")) { // error on server side 5xx
                 Thread.sleep(3000);
             }
         } catch (InterruptedException e) {
