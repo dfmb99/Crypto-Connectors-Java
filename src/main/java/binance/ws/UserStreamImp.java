@@ -1,7 +1,6 @@
 package binance.ws;
 
-import binance.data.WsBalancePosition;
-import binance.data.WsUserData;
+import binance.data.*;
 import binance.rest.RestImp;
 import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
@@ -12,8 +11,41 @@ import utils.Tuple;
 import javax.websocket.*;
 import java.io.IOException;
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Heartbeat thread that sends ping messages to the websocket server
+ */
+class ListenKeyExtenderThread extends Thread {
+    private final UserStreamImp ws;
+    private final String symbol;
+
+    public ListenKeyExtenderThread(UserStreamImp ws, String symbol) {
+        this.ws = ws;
+        this.symbol = symbol;
+        this.start();
+    }
+
+    @Override
+    public void run() {
+        long startTime = System.currentTimeMillis();
+        while (!Thread.interrupted()) {
+            if (System.currentTimeMillis() - startTime > 55 * 60000) {
+                ThreadContext.put("ROUTINGKEY", symbol);
+                ws.get_new_listen_key();
+            }
+            try {
+                Thread.sleep(60000);
+            } catch (InterruptedException e) {
+                this.interrupt();
+            }
+        }
+    }
+}
 
 
 @ClientEndpoint
@@ -26,14 +58,11 @@ public class UserStreamImp implements UserStream{
     private final String url;
     private String listenKey;
     private final String symbol;
-    // minimum timestamp to check latency on instrument update
-    private long minReconnectTimeStamp;
-    // check latency sync lock
-    private final Object latencyLock = "Latency checking lock";
+    private ListenKeyExtenderThread listenKeyExtender;
     // wait / notification mechanism to wait for updates before allowing methods to be executed
     private final Object wsDataUpdate = "Web socket data update";
     // data structure to store ws data
-    private final Map<String, Tuple> wsData;
+    private final Map<String, Object> wsData;
     /**
      * Binance web socket client implementation
      *
@@ -47,9 +76,8 @@ public class UserStreamImp implements UserStream{
         this.url = url;
         this.userSession = null;
         this.wsData = new ConcurrentHashMap<>();
-        this.minReconnectTimeStamp = 0L;
         this.symbol = symbol;
-        this.listenKey = rest.start_user_stream().getListenKey();
+        get_new_listen_key();
 
         this.connect();
         this.waitForData();
@@ -95,6 +123,9 @@ public class UserStreamImp implements UserStream{
     public void onClose(CloseReason reason) {
         ThreadContext.put("ROUTINGKEY", symbol);
         logger.info(String.format("Websocket closed with code: %d", reason.getCloseCode().getCode()));
+        if(listenKeyExtender != null && !listenKeyExtender.isInterrupted())
+            listenKeyExtender.interrupt();
+        listenKeyExtender = null;
         this.userSession = null;
         this.connect();
     }
@@ -124,9 +155,7 @@ public class UserStreamImp implements UserStream{
         switch (dataRec.getEventType()) {
             case LISTEN_KEY_EXPIRED:
                 this.listenKey = rest.start_user_stream().getListenKey();
-                break;
-            case MARGIN_CALL:
-                new Thread(() -> update_marginCall(message) ).start();
+                this.closeSession();
                 break;
             case ACCOUNT_UPDATE:
                 new Thread(() -> update_account(message) ).start();
@@ -137,33 +166,53 @@ public class UserStreamImp implements UserStream{
         }
     }
 
-    private void update_marginCall(String data) {
-    }
-
+    @SuppressWarnings("unchecked")
     private void update_account(String data) {
-        WsBalancePosition d = g.fromJson(data, WsBalancePosition.class);
-        System.out.println(d.getBalancePositionData().getPositions()[0].getSymbol());
+        WsBalancePosition newData = g.fromJson(data, WsBalancePosition.class);
+        Tuple<WsBalanceData[]> oldBalanceData = (Tuple<WsBalanceData[]>) wsData.get(BALANCES);
+        Tuple<WsPositionData[]> oldPositionData = (Tuple<WsPositionData[]>) wsData.get(POSITIONS);
+
+        if(oldBalanceData == null || newData.getEventTime() > oldBalanceData.timestamp) {
+            Tuple<WsBalanceData[]> newBalanceData = new Tuple<>(newData.getEventTime(), newData.getBalancePositionData().getBalances());
+            wsData.put(BALANCES, newBalanceData);
+        }
+
+        if(oldPositionData == null || newData.getEventTime() > oldPositionData.timestamp) {
+            Tuple<WsPositionData[]> newPositionData = new Tuple<>(newData.getEventTime(), newData.getBalancePositionData().getPositions());
+            wsData.put(POSITIONS, newPositionData);
+        }
     }
 
+    @SuppressWarnings("unchecked")
     private void update_order(String data) {
+        WsOrder newData = g.fromJson(data, WsOrder.class);
+        WsOrderData newOrdData = newData.getOrder();
 
-    }
+        if(!newOrdData.getSymbol().equalsIgnoreCase(this.symbol))
+            return;
 
-    /**
-     * Checks latency on a websocket instrument update
-     *
-     * @param timestamp - timestamp of last update
-     */
-    private void check_latency(Long timestamp) {
-        long latency = System.currentTimeMillis() - timestamp;
-        synchronized (latencyLock) {
-            if (latency > MAX_LATENCY && System.currentTimeMillis() > minReconnectTimeStamp) {
-                minReconnectTimeStamp = System.currentTimeMillis() + FORCE_RECONNECT_INTERVAL;
-                ThreadContext.put("ROUTINGKEY", symbol);
-                logger.warn(String.format("Reconnecting to websocket due to high latency of: %d Current timestamp: %d Next reconnect: %d", latency, System.currentTimeMillis(), minReconnectTimeStamp));
-                this.closeSession();
+        wsData.computeIfAbsent(ORDERS, k -> new ArrayList<Tuple<WsOrderData>>());
+        List<Tuple<WsOrderData>> oldOrdData = (List<Tuple<WsOrderData>>) wsData.get(ORDERS);
+        Tuple<WsOrderData> newOrdTuple = new Tuple<>(newData.getEventTime(), newOrdData);
+
+        boolean found = false;
+        for(Tuple<WsOrderData> singleOrdData: oldOrdData) {
+            // only replaces order in memory if same clientOrderID and timestamp of update received is more recent than timestamp of update in memory
+            if ( singleOrdData.y.getClientOrderID().equalsIgnoreCase(newOrdData.getClientOrderID()) && newOrdTuple.timestamp > singleOrdData.timestamp ) {
+                oldOrdData.remove(singleOrdData);
+                oldOrdData.add(newOrdTuple);
+                found = true;
+                break;
             }
         }
+
+        if( !found ) {
+            if(oldOrdData.size() == MAX_LEN_ORDER)
+                oldOrdData.remove(0);
+            oldOrdData.add(newOrdTuple);
+        }
+        Collections.sort(oldOrdData);
+        wsData.put(ORDERS, oldOrdData);
     }
 
     @Override
@@ -187,14 +236,15 @@ public class UserStreamImp implements UserStream{
     }
 
     /**
-     * Send a message.
-     *
-     * @param message - message to be sent
+     * Gets new listen key given
      */
-    protected void sendMessage(String message) {
-        if (isSessionOpen())
-            this.userSession.getAsyncRemote().sendText(message);
+    protected void get_new_listen_key() {
+        this.listenKey = rest.start_user_stream().getListenKey();
+        if(listenKeyExtender != null && !listenKeyExtender.isInterrupted())
+            listenKeyExtender.interrupt();
+        listenKeyExtender = new ListenKeyExtenderThread(this, symbol);
     }
+
 
     /**
      * waits for instrument ws data, blocking thread

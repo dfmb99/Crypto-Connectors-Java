@@ -112,8 +112,11 @@ public class RestImp implements Rest {
         try {
             if (status == 429) {
                 Thread.sleep(5000);
-            } else if (status == 418)
+            } else if (status == 418) {
                 Thread.sleep(60000);
+            } else if (status == 503) {
+                Thread.sleep(3000);
+            }
         } catch (InterruptedException e) {
             // Do nothing
         }

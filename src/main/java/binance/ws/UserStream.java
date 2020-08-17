@@ -16,8 +16,11 @@ public interface UserStream {
     String ACCOUNT_UPDATE = "ACCOUNT_UPDATE";
     String ORDER_TRADE_UPDATE = "ORDER_TRADE_UPDATE";
 
-    int MAX_LEN_MARGIN_CALL = 100;
-    int MAX_LEN_ACCOUNT = 100;
+    String BALANCES = "balances";
+    String POSITIONS = "positions";
+    String ORDERS = "orders";
+
+    int MAX_LEN_MARGIN_CALL = 20;
     int MAX_LEN_ORDER = 100;
 
     //Server configuration
@@ -34,7 +37,4 @@ public interface UserStream {
      * @return true if session closed with success, false otherwise
      */
     boolean closeSession();
-
-
-
 }
