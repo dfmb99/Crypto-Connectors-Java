@@ -160,6 +160,11 @@ class ExchangeInterface {
         params.addProperty("reverse", true);
 
         Order[] openOrders = this.mexRest.get_order(params);
+
+        // if API request had any error
+        if (openOrders == null)
+            return new ArrayList<>(2);
+
         for (Order e : openOrders) {
             if (e.getSide().equals("Buy"))
                 buyOrd.add(e);
@@ -497,13 +502,13 @@ class MarketMakerManager {
      */
     private float get_position_skew(float spreadIndex) {
         long currPos = e.get_position_size();
-        float skew = 0;
+        float skew = Settings.DEFAULT_SKEW[index] * spreadIndex;
 
-        float c = (-1f + (float) Math.pow(2, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
+        float c = (-1f + (float) Math.pow(2.1, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
         if (currPos > 0)
-            skew = c * -1f;
+            skew += c * -1f;
         else if (currPos < 0)
-            skew = c;
+            skew += c;
 
         return skew;
     }
@@ -838,7 +843,7 @@ class MarketMakerManager {
                 sanity_check();
             }
             // FOR TESTING PURPOSES
-            Thread.sleep(5000);
+            //Thread.sleep(5000);
         }
     }
 }

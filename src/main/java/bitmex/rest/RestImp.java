@@ -162,8 +162,11 @@ public class RestImp implements Rest {
 
         // converts error response to json element
         JsonElement obj = g.fromJson(response, JsonElement.class);
-        if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error"))
-            return null;
+        if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error")) {
+            logger.error(String.format("Unknown handled error (%d), retrying request in 2000ms", status));
+            sleep(2000); //waits 2000ms until attempting again.
+            return api_call(verb, endpoint, data);
+        }
 
         // gets error element on json
         JsonObject errorObj = obj.getAsJsonObject().get("error").getAsJsonObject();

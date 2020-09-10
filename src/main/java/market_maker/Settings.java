@@ -30,6 +30,7 @@ public class Settings {
     // Market making settings
     public static final float[] SPREAD_MAINTAIN_RATIO = {1.3f, 1.3f};
     public static final int[] TRADE_BIN_SIZE = {240, 240};
+    public static final float[] DEFAULT_SKEW = {0.01f, 0.0f};
     public static final float[] QUOTE_SPREAD = {40f, 40f}; // realized volatility minutes to base our spread index
     public static final float[] QUOTE_SPREAD_FACTOR = {1f, 1f};
     public static final float[] QUOTE_MIN_SPREAD = {0.002f, 0.002f}; // Minimum spread to quote (eg: 0.002 = 0.2% minium spread)
