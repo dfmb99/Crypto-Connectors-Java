@@ -160,6 +160,11 @@ class ExchangeInterface {
         params.addProperty("reverse", true);
 
         Order[] openOrders = this.mexRest.get_order(params);
+
+        // if API request had any error
+        if (openOrders == null)
+            return new ArrayList<>(2);
+
         for (Order e : openOrders) {
             if (e.getSide().equals("Buy"))
                 buyOrd.add(e);
@@ -365,8 +370,6 @@ class MarketMakerManager {
     private final List<String> openBuyOrds;
     // list w/ orderIDs of open sell orders made by the algorithm
     private final List<String> openSellOrds;
-    // added skew percentage
-    private float addedSkewPercentage;
     private long orderSize;
     private long maxPosition;
     private long minPosition;
@@ -499,14 +502,13 @@ class MarketMakerManager {
      */
     private float get_position_skew(float spreadIndex) {
         long currPos = e.get_position_size();
-        float skew = 0;
+        float skew = Settings.DEFAULT_SKEW[index] * spreadIndex;
 
-        float c = (-1f + (float) Math.pow(2, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
-        c = c + c * addedSkewPercentage;
+        float c = (-1f + (float) Math.pow(2.1, (float) Math.abs(currPos) / (float) this.orderSize / 4f)) * spreadIndex * Settings.QUOTE_SPREAD_FACTOR[index];
         if (currPos > 0)
-            skew = c * -1f;
+            skew += c * -1f;
         else if (currPos < 0)
-            skew = c;
+            skew += c;
 
         return skew;
     }
@@ -585,6 +587,7 @@ class MarketMakerManager {
 
     /**
      * Amends orders with current order quantity, if orders exist, otherwise does nothing
+     *
      */
     private void amend_orders_qty() throws InterruptedException {
         JsonArray orders = new JsonArray();
@@ -640,13 +643,16 @@ class MarketMakerManager {
      */
     private void converge_orders() throws InterruptedException {
 
-        if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
+        if (this.openBuyOrds.removeIf(e::is_buy_order_filled)){
             logger.info("Buy order filled.");
-            orderFilled(1);
+            fillsCounter++;
+            fillsStamp.add(System.currentTimeMillis());
         }
+
         if (this.openSellOrds.removeIf(e::is_sell_order_filled)) {
             logger.info("Sell order filled.");
-            orderFilled(-1);
+            fillsCounter++;
+            fillsStamp.add(System.currentTimeMillis());
         }
 
         JsonArray orders = new JsonArray();
@@ -710,48 +716,6 @@ class MarketMakerManager {
             } else
                 check_current_spread(get_new_order_prices());
         }
-    }
-
-    /**
-     * Order filled
-     * @param side 1 if buy order filled, -1 if sell order filled
-     */
-    private void orderFilled(int side) {
-        int arrSize = fillsStamp.size();
-
-        // if size of timestamps is bigger than x and last fill was delta increase
-        if(fillsStamp.size() > 20 && ((e.get_position_size() > Settings.ORDER_SIZE[index] && side > 0) || (e.get_position_size() < -Settings.ORDER_SIZE[index] && side < 0)) ) {
-            long[] arr = new long[arrSize - 1];
-            long sum = 0;
-            for (int i = 1; i <= arr.length; i++) {
-                arr[i - 1] = fillsStamp.get(i) - fillsStamp.get(i-1);
-                sum += arr[i -1];
-            }
-
-            float avg = sum / (float) arr.length;
-            float stDev = MathCustom.calculateSD(arr);
-
-            logger.debug(Arrays.toString(arr));
-            logger.debug(String.format("Average: %f", avg));
-            logger.debug(String.format("Standard Deviation: %f", stDev));
-
-            fillsCounter++;
-            fillsStamp.add(System.currentTimeMillis());
-
-            if( (avg - 2 * stDev) > (fillsStamp.get(arrSize-1) - fillsStamp.get(arrSize-2)) )
-                addedSkewPercentage = 0.4f;
-            else if( (avg - 1 * stDev) > (fillsStamp.get(arrSize-1) - fillsStamp.get(arrSize-2)) )
-                addedSkewPercentage = 0.2f;
-            else
-                addedSkewPercentage = 0f;
-        } else {
-            fillsCounter++;
-            fillsStamp.add(System.currentTimeMillis());
-            addedSkewPercentage = 0f;
-        }
-
-        logger.debug(Arrays.toString(fillsStamp.toArray()));
-        logger.debug(String.format("Added Skew Percentage: %f", addedSkewPercentage));
     }
 
     private void sanity_check() throws InterruptedException {
@@ -820,6 +784,9 @@ class MarketMakerManager {
                 break;
         }
 
+        // checks and amends if necessary orders quantity
+        amend_orders_qty();
+
         if (toCancel.size() > 0) {
             JsonObject obj = new JsonObject();
             JsonArray params = new JsonArray();
@@ -848,7 +815,6 @@ class MarketMakerManager {
         logger.info(String.format("Fair price: %f", e.get_mark_price()));
         logger.info(String.format("Spread index: %f", spreadIndex));
         logger.info(String.format("Skew: %f", get_position_skew(spreadIndex)));
-        logger.info(String.format("Added skew percentage: %f%%", addedSkewPercentage * 100f));
         logger.info("-------------------------------------------------");
     }
 
@@ -874,7 +840,7 @@ class MarketMakerManager {
                 sanity_check();
             }
             // FOR TESTING PURPOSES
-            Thread.sleep(5000);
+            //Thread.sleep(5000);
         }
     }
 }

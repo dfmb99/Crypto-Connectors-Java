@@ -7,7 +7,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.core.util.UuidUtil;
 import org.glassfish.jersey.client.ClientConfig;
 import org.glassfish.jersey.client.ClientProperties;
 import utils.Auth;
@@ -22,6 +21,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class RestImp implements Rest {
 
@@ -162,8 +162,11 @@ public class RestImp implements Rest {
 
         // converts error response to json element
         JsonElement obj = g.fromJson(response, JsonElement.class);
-        if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error"))
-            return null;
+        if (!obj.isJsonObject() || !obj.getAsJsonObject().has("error")) {
+            logger.error(String.format("Unknown handled error (%d), retrying request in 2000ms", status));
+            sleep(2000); //waits 2000ms until attempting again.
+            return api_call(verb, endpoint, data);
+        }
 
         // gets error element on json
         JsonObject errorObj = obj.getAsJsonObject().get("error").getAsJsonObject();
@@ -197,7 +200,7 @@ public class RestImp implements Rest {
             logger.warn(String.format("Rate-limit will reset at: %d , sleeping for %d ms", rateLimitReset, toSleep));
             sleep(toSleep); //waits until attempting again.
             return api_call(verb, endpoint, data);
-        } else if (status == 503) {
+        } else if (String.valueOf(status).startsWith("5")) { // error on server side 5xx
             logger.error(errLog);
             sleep(3000); //waits 3000ms until attempting again.
             return api_call(verb, endpoint, data);
@@ -225,7 +228,7 @@ public class RestImp implements Rest {
      * @return new order ID
      */
     private String setNewOrderID() {
-        return (orderIDPrefix + UuidUtil.getTimeBasedUuid().toString()).substring(0, 36);
+        return (this.orderIDPrefix + UUID.randomUUID()).substring(0, 28);
     }
 
     @Override
