@@ -161,15 +161,14 @@ class ExchangeInterface {
 
         Order[] openOrders = this.mexRest.get_order(params);
 
-        // if API request had any error
-        if (openOrders == null)
-            return new ArrayList<>(2);
-
-        for (Order e : openOrders) {
-            if (e.getSide().equals("Buy"))
-                buyOrd.add(e);
-            else
-                sellOrd.add(e);
+        // if API request had no error
+        if (openOrders != null) {
+            for (Order e : openOrders) {
+                if (e.getSide().equals("Buy"))
+                    buyOrd.add(e);
+                else
+                    sellOrd.add(e);
+            }
         }
 
         List<List<Order>> toRet = new ArrayList<>(2);
@@ -587,7 +586,6 @@ class MarketMakerManager {
 
     /**
      * Amends orders with current order quantity, if orders exist, otherwise does nothing
-     *
      */
     private void amend_orders_qty() throws InterruptedException {
         JsonArray orders = new JsonArray();
@@ -643,7 +641,7 @@ class MarketMakerManager {
      */
     private void converge_orders() throws InterruptedException {
 
-        if (this.openBuyOrds.removeIf(e::is_buy_order_filled)){
+        if (this.openBuyOrds.removeIf(e::is_buy_order_filled)) {
             logger.info("Buy order filled.");
             fillsCounter++;
             fillsStamp.add(System.currentTimeMillis());
@@ -776,11 +774,11 @@ class MarketMakerManager {
         }
 
         long now = System.currentTimeMillis();
-        for(int i = 0; i < fillsStamp.size(); i++) {
-            if(fillsStamp.get(i) < now - DAY_TO_MILLISECONDS) {
+        for (int i = 0; i < fillsStamp.size(); i++) {
+            if (fillsStamp.get(i) < now - DAY_TO_MILLISECONDS) {
                 fillsStamp.remove(i);
                 fillsCounter--;
-            }else
+            } else
                 break;
         }
 
@@ -860,16 +858,16 @@ public class MarketMaker {
                 try {
                     logger.info(String.format("Starting execution in %s", symbol));
                     new MarketMakerManager(index);
-                }catch (Exception e) {
+                } catch (Exception e) {
                     logger.error("Exception log: ", e);
                 }
             });
         }
 
-        for(Thread t: threads)
+        for (Thread t : threads)
             t.start();
 
-        for (Thread t: threads)
+        for (Thread t : threads)
             t.join();
     }
 }
